@@ -1,6 +1,5 @@
 const mineflayer = require('mineflayer');
 const autoEat = require('mineflayer-auto-eat');
-const mineflayer = require('mineflayer');
 const autoeat = require('mineflayer-auto-eat');
 const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
 const { GoalFollow } = goals;
