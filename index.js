@@ -9,7 +9,8 @@ const config = {
   port: config.port,
   username: config.username,
   password: config.password,
-  version: "config.version"
+  version: config.version,
+  auth: offline
 };
 
 let bot;
