@@ -1,15 +1,17 @@
 const mineflayer = require('mineflayer');
 const autoEat = require('mineflayer-auto-eat');
-const { pathfinder, Movements, goals: { GoalNear } } = require('mineflayer-pathfinder');
-const Vec3 = require('vec3');
-const mcDataLib = require('minecraft-data');
+const mineflayer = require('mineflayer');
+const autoeat = require('mineflayer-auto-eat');
+const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
+const { GoalFollow } = goals;
+const config = require('./config.json');
 
-const config = {
+const bot = mineflayer.createBot({
   host: config.host,
   port: config.port,
   username: config.username,
   password: config.password,
-  version: config.version,
+  version: config.version || false,
   auth: offline
 };
 
