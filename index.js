@@ -1,8 +1,8 @@
 const mineflayer = require('mineflayer')
 const { pathfinder, Movements, goals: { GoalNear } } = require('mineflayer-pathfinder')
-const pvp = require('mineflayer-pvp') // ✅ Correct usage: require as function
-const autoeat = require('mineflayer-auto-eat') // ✅ Correct usage
-const collectBlock = require('mineflayer-collectblock') // ✅ Correct usage
+const pvp = require('mineflayer-pvp')
+const autoeat = require('mineflayer-auto-eat')
+// const collectBlock = require('mineflayer-collectblock') // ❌ Removed because it's not a function
 const { Vec3 } = require('vec3')
 const config = require('./config.json')
 
@@ -19,7 +19,7 @@ function createBot() {
   bot.loadPlugin(pathfinder)
   bot.loadPlugin(pvp)
   bot.loadPlugin(autoeat)
-  bot.loadPlugin(collectBlock)
+  // bot.loadPlugin(collectBlock) // ❌ Removed
 
   let attacker = null
 
