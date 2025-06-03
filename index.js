@@ -53,6 +53,16 @@ function createBot() {
     bot.on('physicsTick', eatIfHungry);
     bot.on('entityHurt', onEntityHurt);
 
+    // Auto-equip armor when picking up items
+    bot.on('playerCollect', async (collector, itemDrop) => {
+      if (collector.username !== bot.username) return;
+      setTimeout(() => {
+        bot.armorManager.equipAll()
+          .then(() => log('Auto-equipped armor.'))
+          .catch(err => log(`Armor equip error: ${err.message}`));
+      }, 500);
+    });
+
     runLoop();
   });
 
@@ -193,6 +203,9 @@ async function searchFoodInChests() {
         log(`Withdrew ${toWithdraw} of ${mcData.items[food.type].name}`);
       }
       chest.close();
+
+      // Equip armor after looting
+      await bot.armorManager.equipAll().catch(e => log("Equip after chest error: " + e.message));
     } catch (e) {
       log(`Chest error: ${e.message}`);
     }
