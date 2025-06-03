@@ -1,8 +1,8 @@
 const mineflayer = require('mineflayer')
 const { pathfinder, Movements, goals: { GoalNear } } = require('mineflayer-pathfinder')
-const pvp = require('mineflayer-pvp') // ✅ Direct plugin function
-const autoeat = require('mineflayer-auto-eat') // ✅ Direct plugin function
-const collectBlock = require('mineflayer-collectblock') // ✅ Direct plugin function
+const pvp = require('mineflayer-pvp').plugin
+const autoeat = require('mineflayer-auto-eat').plugin
+const collectBlock = require('mineflayer-collectblock').plugin
 const { Vec3 } = require('vec3')
 const config = require('./config.json')
 
@@ -16,7 +16,7 @@ function createBot() {
     username: config.username
   })
 
-  // ✅ Load plugins
+  // ✅ Load plugins properly as functions
   bot.loadPlugin(pathfinder)
   bot.loadPlugin(pvp)
   bot.loadPlugin(autoeat)
