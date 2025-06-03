@@ -1,7 +1,7 @@
 const mineflayer = require('mineflayer');
 const autoEat = require('mineflayer-auto-eat');
 const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
-const { GoalNear, GoalFollow } = goals;
+const { GoalFollow, GoalNear } = goals;
 const mcDataLib = require('minecraft-data');
 const config = require('./config.json');
 
@@ -12,17 +12,27 @@ function createBot() {
     username: config.username,
     password: config.password,
     version: config.version || false,
-    auth: 'offline'
+    auth: config.auth || 'offline'
   });
 
   let mcData;
   let movements;
+  let isEating = false;
   let lastAttacker = null;
 
-  bot.loadPlugin(pathfinder);
   bot.loadPlugin(autoEat);
 
-  bot.once('spawn', onSpawn);
+  bot.once('spawn', () => {
+    mcData = mcDataLib(bot.version);
+    bot.loadPlugin(pathfinder);
+
+    movements = new Movements(bot, mcData);
+    movements.allow1by1tallDoors = true;
+    bot.pathfinder.setMovements(movements);
+
+    onSpawn();
+  });
+
   bot.on('error', console.error);
   bot.on('end', () => setTimeout(createBot, 5000));
 
@@ -40,11 +50,7 @@ function createBot() {
   });
 
   function onSpawn() {
-    mcData = mcDataLib(bot.version);
-    movements = new Movements(bot, mcData);
-    movements.allow1by1tallDoors = true;
-    bot.pathfinder.setMovements(movements);
-
+    // Enable autoEat plugin for auto eating
     bot.autoEat.options = {
       priority: 'foodPoints',
       startAt: 14,
@@ -69,6 +75,7 @@ function createBot() {
         }
       }
     }
+
     const sword = bot.inventory.items().find(i => i.name.includes('sword'));
     if (sword) {
       try {
