@@ -1,6 +1,6 @@
 const mineflayer = require('mineflayer')
 const { pathfinder, Movements, goals: { GoalNear } } = require('mineflayer-pathfinder')
-const { plugin: pvp } = require('mineflayer-pvp')
+const pvp = require('mineflayer-pvp').plugin
 const autoeat = require('mineflayer-auto-eat').plugin
 const collectBlock = require('mineflayer-collectblock').plugin
 const { Vec3 } = require('vec3')
