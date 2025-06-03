@@ -27,7 +27,7 @@ let lastAttacker = null;
   bot.on('error', console.error);
   bot.on('end', () => setTimeout(createBot, 5000));
 
-  bot.on('physicTick', () => {
+  bot.on('physicsTick', () => {
     eatWhenHungry();
     drinkPotionsIfNeeded();
     runFromCreepers();
