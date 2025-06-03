@@ -1,202 +1,110 @@
 const mineflayer = require('mineflayer');
+const { pathfinder, Movements, goals: { GoalNear } } = require('mineflayer-pathfinder');
 const autoEat = require('mineflayer-auto-eat');
-const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
-const { GoalFollow, GoalNear } = goals;
 const mcDataLoader = require('minecraft-data');
 const config = require('./config.json');
+const fs = require('fs');
+const Vec3 = require('vec3');
+
+let bot, mcData, defaultMove;
+let isSleeping = false;
 
 function createBot() {
-  const bot = mineflayer.createBot({
+  bot = mineflayer.createBot({
     host: config.host,
     port: config.port,
     username: config.username,
-    password: config.password,
-    version: config.version || false,
-    auth: config.auth || 'offline'
+    auth: 'offline',
+    version: config.version || false
   });
-
-  let mcData;
-  let movements;
-  let lastAttacker = null;
-
-  bot.loadPlugin(autoEat);
 
   bot.once('spawn', () => {
-    // Wait a tick to ensure bot.version is loaded
-    setTimeout(() => {
-      try {
-        if (!bot.version) throw new Error('Bot version is null');
-        mcData = mcDataLoader(bot.version);
-        bot.loadPlugin(pathfinder);
+    mcData = mcDataLoader(bot.version);
+    bot.loadPlugin(pathfinder);
+    bot.loadPlugin(autoEat);
 
-        movements = new Movements(bot, mcData);
-        movements.allow1by1tallDoors = true;
-        bot.pathfinder.setMovements(movements);
+    defaultMove = new Movements(bot, mcData);
+    bot.pathfinder.setMovements(defaultMove);
 
-        onSpawn();
-      } catch (err) {
-        console.error('Spawn error:', err.message);
-        bot.end(); // restart
-      }
-    }, 100); // Wait 100ms to let bot.version be ready
+    setupSleepRoutine();
+    setupAutoEat();
+    roamHouseLoop();
   });
 
-  bot.on('error', err => console.error('Error:', err));
+  bot.on('error', console.error);
   bot.on('end', () => {
-    console.log('Bot disconnected. Reconnecting...');
+    console.log("Bot disconnected. Reconnecting in 5s...");
     setTimeout(createBot, 5000);
   });
+}
 
-  function onSpawn() {
-    bot.autoEat.options = {
-      priority: 'foodPoints',
-      startAt: 14,
-      bannedFood: []
-    };
-    bot.autoEat.enable();
+function setupSleepRoutine() {
+  bot.on('time', async () => {
+    if (bot.time.dayTime > 13000 && bot.time.dayTime < 23460 && !isSleeping) {
+      const bed = bot.findBlock({ matching: b => bot.isABed(b), maxDistance: 16 });
+      if (bed) {
+        try {
+          await bot.pathfinder.goto(new GoalNear(bed.position.x, bed.position.y, bed.position.z, 1));
+          await bot.sleep(bed);
+          isSleeping = true;
+          console.log('Bot is sleeping...');
 
-    equipArmor();
-    setInterval(roamRandomly, 15000);
-    setupBedSleep();
-
-    bot.on('physicsTick', () => {
-      eatWhenHungry();
-      drinkPotionsIfNeeded();
-      runFromCreepers();
-      openDoorsOnPath();
-    });
-
-    bot.on('entityHurt', (entity) => {
-      if (entity === bot.entity) {
-        handleBeingHit();
-      }
-    });
-  }
-
-  async function equipArmor() {
-    const armorSlots = ['helmet', 'chestplate', 'leggings', 'boots'];
-    for (const slot of armorSlots) {
-      if (!bot.getEquipment(slot)) {
-        const armor = bot.inventory.items().find(i => i.name.includes(slot));
-        if (armor) {
-          try {
-            await bot.equip(armor, 'armor');
-          } catch {}
+          bot.once('wake', () => {
+            console.log('Bot woke up.');
+            isSleeping = false;
+          });
+        } catch (e) {
+          console.log(`Sleep failed: ${e.message}`);
         }
+      } else {
+        console.log("No bed found nearby.");
       }
     }
+  });
+}
 
-    const sword = bot.inventory.items().find(i => i.name.includes('sword'));
-    if (sword) {
-      try {
-        await bot.equip(sword, 'hand');
-      } catch {}
-    }
-  }
+function setupAutoEat() {
+  bot.autoEat.options = {
+    priority: 'foodPoints',
+    startAt: 16,
+    bannedFood: []
+  };
 
-  function eatWhenHungry() {
-    if (bot.food < 14 && !bot.autoEat.isEating()) {
+  bot.on('health', () => {
+    if (bot.food < 18) {
       bot.autoEat.enable();
+    } else {
+      bot.autoEat.disable();
     }
-  }
+  });
+}
 
-  function drinkPotionsIfNeeded() {
-    if (bot.health < 10 || bot.effects.length === 0) {
-      const potion = bot.inventory.items().find(i => i.name.includes('potion'));
-      if (potion && !bot.usingHeldItem) {
-        bot.equip(potion, 'hand').then(() => bot.consume()).catch(() => {});
-      }
-    }
-  }
+async function roamHouseLoop() {
+  const center = config.houseCenter;
+  const radius = config.houseRadius || 4;
 
-  function roamRandomly() {
-    const pos = bot.entity.position;
-    const goal = new GoalNear(pos.x + (Math.random() * 10 - 5), pos.y, pos.z + (Math.random() * 10 - 5), 1);
-    bot.pathfinder.setGoal(goal);
-  }
-
-  function handleBeingHit() {
-    const attacker = getLastAttacker();
-    if (!attacker) return;
-    lastAttacker = attacker;
-
-    bot.chat("I'll kill you!");
-    setTimeout(() => bot.chat("Why did you hit me?"), 3000);
-    setTimeout(() => bot.chat("Come back here!"), 6000);
-
-    chaseAndAttack(attacker);
-  }
-
-  function getLastAttacker() {
-    const entities = Object.values(bot.entities);
-    for (const e of entities) {
-      if (e.type === 'player' && e.position.distanceTo(bot.entity.position) < 12) {
-        return e;
-      }
-    }
-    return null;
-  }
-
-  async function chaseAndAttack(target) {
-    if (!target) return;
-    const dist = bot.entity.position.distanceTo(target.position);
-    if (dist > 12) {
-      bot.pathfinder.setGoal(null); // Stop chasing if too far
-      return;
+  while (true) {
+    if (!bot || !bot.entity || isSleeping) {
+      await delay(5000);
+      continue;
     }
 
-    const sword = bot.inventory.items().find(i => i.name.includes('sword'));
-    if (sword) {
-      await bot.equip(sword, 'hand').catch(() => {});
+    const dx = Math.floor(Math.random() * (radius * 2 + 1)) - radius;
+    const dz = Math.floor(Math.random() * (radius * 2 + 1)) - radius;
+    const target = new Vec3(center.x + dx, center.y, center.z + dz);
+
+    try {
+      await bot.pathfinder.goto(new GoalNear(target.x, target.y, target.z, 1));
+    } catch (e) {
+      console.log(`Roam failed: ${e.message}`);
     }
 
-    const goal = new GoalNear(target.position.x, target.position.y, target.position.z, 1);
-    bot.pathfinder.setGoal(goal, true);
-
-    bot.attack(target);
+    await delay(5000);
   }
+}
 
-  function openDoorsOnPath() {
-    const frontPos = bot.entity.position.offset(0, 0, 1);
-    const block = bot.blockAt(frontPos);
-    if (block && block.name.includes('door') && !block.open) {
-      bot.activateBlock(block).catch(() => {});
-    }
-  }
-
-  function setupBedSleep() {
-    bot.on('time', () => {
-      const time = bot.time.timeOfDay;
-      if (time > 12500 && time < 13500) {
-        const bed = findNearbyBed();
-        if (bed) {
-          bot.pathfinder.setGoal(new GoalNear(bed.position.x, bed.position.y, bed.position.z, 1));
-          bot.sleep(bed).catch(() => {});
-        }
-      }
-    });
-  }
-
-  function findNearbyBed() {
-    const beds = [];
-    for (const key in bot.world.blocks) {
-      const b = bot.world.blocks[key];
-      if (b && b.name.includes('bed')) beds.push(b);
-    }
-    if (beds.length === 0) return null;
-    beds.sort((a, b) => bot.entity.position.distanceTo(a.position) - bot.entity.position.distanceTo(b.position));
-    return beds[0];
-  }
-
-  function runFromCreepers() {
-    const creepers = Object.values(bot.entities).filter(e => e.name === 'creeper' && e.position.distanceTo(bot.entity.position) < 8);
-    if (creepers.length === 0) return;
-
-    const creeper = creepers.reduce((a, b) => (a.position.distanceTo(bot.entity.position) < b.position.distanceTo(bot.entity.position)) ? a : b);
-    const dir = bot.entity.position.minus(creeper.position).normalize();
-    const runTo = bot.entity.position.offset(dir.x * 10, 0, dir.z * 10);
-    bot.pathfinder.setGoal(new GoalNear(runTo.x, runTo.y, runTo.z, 1));
-  }
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 createBot();
