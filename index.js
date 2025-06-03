@@ -5,10 +5,10 @@ const Vec3 = require('vec3');
 const mcDataLib = require('minecraft-data');
 
 const config = {
-  host: "KingdomOfYggdrasil.aternos.me",
-  port: 52364,
-  username: "ZhyPvp",
-  password: "ZhyPvp22"
+  host: config.host,
+  port: config.port,
+  username: config.username,
+  password: config.password,
   version: "config.version"
 };
 
