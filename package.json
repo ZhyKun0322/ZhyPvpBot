@@ -1,6 +1,6 @@
 {
-  "name": "zhypvpbot",
-  "version": "1.0.0",
+  "name": "ZhyPvl",
+  "version": "1.19.2",
   "description": "A Mineflayer bot for PvP and auto-eating.",
   "main": "index.js",
   "scripts": {
