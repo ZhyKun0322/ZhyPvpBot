@@ -20,14 +20,6 @@ let movements;
 let isEating = false;
 let lastAttacker = null;
 
-function createBot() {
-  bot = mineflayer.createBot({
-    host: config.host,
-    port: config.port,
-    username: config.username,
-    password: config.password,
-  });
-
   bot.loadPlugin(pathfinder);
   bot.loadPlugin(autoEat);
 
