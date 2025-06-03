@@ -12,7 +12,7 @@ const bot = mineflayer.createBot({
   password: config.password,
   version: config.version || false,
   auth: offline
-};
+});
 
 let bot;
 let mcData;
