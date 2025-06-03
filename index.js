@@ -1,3 +1,7 @@
+(r => setTimeout(r, ms));
+}
+
+createBot();
 const mineflayer = require('mineflayer');
 const { pathfinder, Movements, goals: { GoalNear } } = require('mineflayer-pathfinder');
 const autoEat = require('mineflayer-auto-eat');
@@ -37,7 +41,7 @@ function createBot() {
 
   bot.once('spawn', () => {
     log('Bot has spawned in the world.');
-    mcData = require('minecraft-data')(bot.version);
+    mcData = require('minecraft-data')(bot.version); // ✅ Must be before plugin load
 
     bot.loadPlugin(pathfinder);
     bot.loadPlugin(autoEat);
@@ -49,19 +53,15 @@ function createBot() {
     defaultMove.canDig = false;
     bot.pathfinder.setMovements(defaultMove);
 
-    bot.on('chat', onChat);
-    bot.on('physicsTick', eatIfHungry);
-    bot.on('entityHurt', onEntityHurt);
+    bot.autoEat.options.priority = 'foodPoints';
+    bot.autoEat.options.bannedFood = [];
 
-    // Auto-equip armor when picking up items
-    bot.on('playerCollect', async (collector, itemDrop) => {
-      if (collector.username !== bot.username) return;
-      setTimeout(() => {
-        bot.armorManager.equipAll()
-          .then(() => log('Auto-equipped armor.'))
-          .catch(err => log(`Armor equip error: ${err.message}`));
-      }, 500);
+    bot.on('chat', onChat);
+    bot.on('physicsTick', () => {
+      eatIfHungry();
+      equipArmor();
     });
+    bot.on('entityHurt', onEntityHurt);
 
     runLoop();
   });
@@ -137,6 +137,15 @@ function eatIfHungry() {
   }
 }
 
+function equipArmor() {
+  bot.inventory.items().forEach(item => {
+    if (mcData.items[item.type].name.includes('helmet')) bot.armorManager.equip(item, 'head');
+    else if (mcData.items[item.type].name.includes('chestplate')) bot.armorManager.equip(item, 'torso');
+    else if (mcData.items[item.type].name.includes('leggings')) bot.armorManager.equip(item, 'legs');
+    else if (mcData.items[item.type].name.includes('boots')) bot.armorManager.equip(item, 'feet');
+  });
+}
+
 async function runLoop() {
   while (true) {
     if (!isRunning || sleeping) {
@@ -145,7 +154,6 @@ async function runLoop() {
     }
 
     const dayTime = bot.time.dayTime;
-
     if (dayTime >= 13000 && dayTime <= 23458) {
       await sleepRoutine();
     } else {
@@ -203,9 +211,6 @@ async function searchFoodInChests() {
         log(`Withdrew ${toWithdraw} of ${mcData.items[food.type].name}`);
       }
       chest.close();
-
-      // Equip armor after looting
-      await bot.armorManager.equipAll().catch(e => log("Equip after chest error: " + e.message));
     } catch (e) {
       log(`Chest error: ${e.message}`);
     }
