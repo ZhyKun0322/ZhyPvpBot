@@ -10,7 +10,7 @@
     "mineflayer": "^4.6.0",
     "mineflayer-pathfinder": "^1.1.0",
     "mineflayer-auto-eat": "^1.0.0",
-    "mineflayer-pvp": "^1.2.0",
+    "mineflayer-pvp": "^1.3.2",
     "mineflayer-armor-manager": "^1.1.0",
     "vec3": "^0.1.7"
   }
