@@ -9,6 +9,7 @@ const config = {
   port: 52364,
   username: "ZhyPvp",
   password: "ZhyPvp22"
+  version: "config.version"
 };
 
 let bot;
