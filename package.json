@@ -1,17 +1,15 @@
 {
-  "name": "zhy-pvp-bot",
+  "name": "zhypvpbot",
   "version": "1.0.0",
+  "description": "A Mineflayer bot for PvP and auto-eating.",
   "main": "index.js",
-  "type": "commonjs",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "mineflayer": "^4.16.0",
-    "mineflayer-auto-eat": "^1.1.1",
-    "mineflayer-collectblock": "^1.2.1",
-    "mineflayer-pathfinder": "^2.3.1",
-    "mineflayer-pvp": "^1.3.2",
+    "mineflayer": "^4.5.0",
+    "mineflayer-pathfinder": "^1.1.0",
+    "mineflayer-auto-eat": "^1.0.0",
     "vec3": "^0.1.7"
   }
 }
