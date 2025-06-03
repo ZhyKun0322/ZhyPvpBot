@@ -1,8 +1,8 @@
 const mineflayer = require('mineflayer')
 const { pathfinder, Movements, goals: { GoalNear } } = require('mineflayer-pathfinder')
-const pvp = require('mineflayer-pvp').plugin
-const autoeat = require('mineflayer-auto-eat').plugin
-const collectBlock = require('mineflayer-collectblock').plugin
+const pvp = require('mineflayer-pvp') // ✅ Correct usage: require as function
+const autoeat = require('mineflayer-auto-eat') // ✅ Correct usage
+const collectBlock = require('mineflayer-collectblock') // ✅ Correct usage
 const { Vec3 } = require('vec3')
 const config = require('./config.json')
 
@@ -16,7 +16,6 @@ function createBot() {
     username: config.username
   })
 
-  // ✅ Load plugins properly as functions
   bot.loadPlugin(pathfinder)
   bot.loadPlugin(pvp)
   bot.loadPlugin(autoeat)
@@ -140,7 +139,6 @@ function createBot() {
     attacker = null
   })
 
-  // Auto reconnect
   bot.on('end', () => {
     console.log('Bot disconnected. Reconnecting in 5 seconds...')
     setTimeout(createBot, 5000)
