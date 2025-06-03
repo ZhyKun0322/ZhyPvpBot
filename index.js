@@ -14,7 +14,6 @@ const bot = mineflayer.createBot({
   auth: offline
 });
 
-let bot;
 let mcData;
 let movements;
 let isEating = false;
