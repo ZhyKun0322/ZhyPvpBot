@@ -50,13 +50,16 @@ function createBot() {
 
     defaultMove = new Movements(bot, mcData);
     defaultMove.canDig = false;
+    defaultMove.allow1by1tallDoors = true;
     bot.pathfinder.setMovements(defaultMove);
 
+    // Configure autoEat plugin options
     bot.autoEat.options.priority = 'foodPoints';
     bot.autoEat.options.bannedFood = [];
 
     bot.on('chat', onChat);
     bot.on('entityHurt', onEntityHurt);
+
     bot.on('physicsTick', () => {
       equipArmorAndWeapons();
       usePotionIfLow();
@@ -67,7 +70,7 @@ function createBot() {
       log('Bot has died.');
     });
 
-    bot.on('spawn', () => {
+    bot.once('spawn', () => {
       if (deathPosition) {
         log('Attempting to recover items...');
         goTo(deathPosition);
@@ -105,19 +108,13 @@ function onChat(username, message) {
   if (message === '!stop') {
     isRunning = false;
     bot.chat("Bot paused.");
-  }
-
-  if (message === '!start') {
+  } else if (message === '!start') {
     isRunning = true;
     bot.chat("Bot resumed.");
-  }
-
-  if (message === '!sleep') {
+  } else if (message === '!sleep') {
     bot.chat("Trying to sleep...");
     sleepRoutine();
-  }
-
-  if (message === '!wander') {
+  } else if (message === '!wander') {
     bot.chat("Wandering...");
     randomWander();
   }
@@ -140,7 +137,7 @@ function onEntityHurt(victim) {
 
 function equipArmorAndWeapons() {
   bot.inventory.items().forEach(item => {
-    const name = mcData.items[item.type].name;
+    const name = mcData.items[item.type]?.name || '';
     try {
       if (name.includes('helmet')) bot.armorManager.equip(item, 'head');
       else if (name.includes('chestplate')) bot.armorManager.equip(item, 'torso');
@@ -157,7 +154,7 @@ function equipArmorAndWeapons() {
 
 function usePotionIfLow() {
   if (bot.health < 10) {
-    const potion = bot.inventory.items().find(i => mcData.items[i.type].name.includes('potion'));
+    const potion = bot.inventory.items().find(i => mcData.items[i.type]?.name.includes('potion'));
     if (potion) {
       bot.equip(potion, 'hand')
         .then(() => bot.consume())
