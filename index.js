@@ -1,235 +1,282 @@
 const mineflayer = require('mineflayer');
-const mcDataLib = require('minecraft-data');
-const { pathfinder, Movements, goals: { GoalNear } } = require('mineflayer-pathfinder');
+const pathfinder = require('mineflayer-pathfinder').pathfinder;
+const Movements = require('mineflayer-pathfinder').Movements;
+const { goals: { GoalNear } } = require('mineflayer-pathfinder');
 const autoEat = require('mineflayer-auto-eat');
-const pvp = require('mineflayer-pvp').plugin;
 const armorManager = require('mineflayer-armor-manager');
-const Vec3 = require('vec3');
+const pvp = require('mineflayer-pvp').plugin;
+const mcDataLib = require('minecraft-data');
 const fs = require('fs');
-const config = require('./config.json');
+const path = require('path');
 
-let bot;
+const configPath = path.join(__dirname, 'config.json');
+const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+
+const bot = mineflayer.createBot({
+  host: config.host,
+  port: config.port,
+  username: config.username,
+  version: false,
+});
+
 let mcData;
 let defaultMove;
-let sleeping = false;
-let isRunning = true;
-let alreadyLoggedIn = false;
-let deathPosition = null;
+let deathLocation = null;
+let bedBlock = null;
+let isFleeing = false;
+let isFighting = false;
 
-function log(msg) {
-  const time = new Date().toISOString();
-  const fullMsg = `[${time}] ${msg}`;
-  console.log(fullMsg);
-  fs.appendFileSync('logs.txt', fullMsg + '\n');
+function isEdible(item) {
+  if (!item) return false;
+  const edibleItems = [
+    'apple', 'bread', 'carrot', 'cooked_beef', 'cooked_chicken',
+    'cooked_mutton', 'cooked_porkchop', 'cooked_rabbit', 'golden_apple',
+    'melon_slice', 'potato', 'pumpkin_pie', 'rabbit_stew', 'rotten_flesh',
+    'steak', 'sweet_berries', 'cooked_salmon', 'cooked_cod',
+  ];
+  return edibleItems.some(name => item.name.includes(name));
 }
 
-function createBot() {
-  log('Creating bot...');
-  bot = mineflayer.createBot({
-    host: config.host,
-    port: config.port,
-    username: config.username,
-    version: config.version,
-    auth: 'offline'
-  });
-
-  bot.once('login', () => log('Bot logged in to the server.'));
-
-  bot.once('spawn', async () => {
-    log('Bot has spawned in the world.');
-
-    // Load mcData here, after spawn so bot.version is defined
-    mcData = mcDataLib(bot.version);
-    bot.mcData = mcData;
-
-    // Load plugins that depend on mcData AFTER loading mcData
-    bot.loadPlugin(pathfinder);
-    bot.loadPlugin(autoEat);
-    bot.loadPlugin(pvp);
-    bot.loadPlugin(armorManager);
-
-    defaultMove = new Movements(bot, mcData);
-    defaultMove.canDig = false;
-    defaultMove.allow1by1tallDoors = true;
-    bot.pathfinder.setMovements(defaultMove);
-
-    // Configure autoEat plugin options
-    bot.autoEat.options.priority = 'foodPoints';
-    bot.autoEat.options.bannedFood = [];
-
-    bot.on('chat', onChat);
-    bot.on('entityHurt', onEntityHurt);
-
-    bot.on('physicsTick', () => {
-      equipArmorAndWeapons();
-      usePotionIfLow();
-    });
-
-    bot.on('death', () => {
-      deathPosition = bot.entity.position.clone();
-      log('Bot has died.');
-    });
-
-    bot.once('spawn', () => {
-      if (deathPosition) {
-        log('Attempting to recover items...');
-        goTo(deathPosition);
-        deathPosition = null;
-      }
-    });
-
-    runLoop();
-  });
-
-  bot.on('message', msg => {
-    const text = msg.toString().toLowerCase();
-    log(`Server Message: ${text}`);
-    if (alreadyLoggedIn) return;
-    if (text.includes('register')) {
-      bot.chat(`/register ${config.password} ${config.password}`);
-      alreadyLoggedIn = true;
-    } else if (text.includes('login')) {
-      bot.chat(`/login ${config.password}`);
-      alreadyLoggedIn = true;
-    }
-  });
-
-  bot.on('kicked', reason => log(`[KICKED] ${reason}`));
-  bot.on('error', err => log(`[ERROR] ${err.message}`));
-  bot.on('end', () => {
-    log('Bot disconnected. Reconnecting in 5 seconds...');
-    setTimeout(createBot, 5000);
-  });
+function isPotion(item) {
+  if (!item) return false;
+  return item.name.includes('potion');
 }
 
-function onChat(username, message) {
-  if (username === bot.username) return;
-
-  if (message === '!stop') {
-    isRunning = false;
-    bot.chat("Bot paused.");
-  } else if (message === '!start') {
-    isRunning = true;
-    bot.chat("Bot resumed.");
-  } else if (message === '!sleep') {
-    bot.chat("Trying to sleep...");
-    sleepRoutine();
-  } else if (message === '!wander') {
-    bot.chat("Wandering...");
-    randomWander();
-  }
+function isShield(item) {
+  if (!item) return false;
+  return item.name.includes('shield');
 }
 
-function onEntityHurt(victim) {
-  if (!isRunning || sleeping) return;
-  if (victim !== bot.entity) return;
-
-  const attacker = Object.values(bot.entities).find(e =>
-    e.type === 'player' &&
-    e.position.distanceTo(bot.entity.position) < 6
-  );
-
-  if (attacker) {
-    bot.pvp.attack(attacker);
-    log(`Attacked by: ${attacker.username} – Counterattacking.`);
-  }
+async function equipArmor() {
+  try {
+    await bot.armorManager.equipAll();
+  } catch {}
 }
 
-function equipArmorAndWeapons() {
-  bot.inventory.items().forEach(item => {
-    const name = mcData.items[item.type]?.name || '';
+async function equipShield() {
+  const shield = bot.inventory.items().find(isShield);
+  if (shield) {
     try {
-      if (name.includes('helmet')) bot.armorManager.equip(item, 'head');
-      else if (name.includes('chestplate')) bot.armorManager.equip(item, 'torso');
-      else if (name.includes('leggings')) bot.armorManager.equip(item, 'legs');
-      else if (name.includes('boots')) bot.armorManager.equip(item, 'feet');
-      else if (name.includes('sword')) bot.equip(item, 'hand');
-      else if (name.includes('shield')) bot.equip(item, 'off-hand');
-      else if (name.includes('bow')) bot.equip(item, 'hand');
-    } catch (e) {
-      log(`Equip error: ${e.message}`);
-    }
+      await bot.equip(shield, 'off-hand');
+    } catch {}
+  }
+}
+
+async function equipWeapon() {
+  const sword = bot.inventory.items().find(item => item.name.includes('sword'));
+  if (sword) {
+    try {
+      await bot.equip(sword, 'hand');
+      return;
+    } catch {}
+  }
+  const bow = bot.inventory.items().find(item => item.name === 'bow');
+  if (bow) {
+    try {
+      await bot.equip(bow, 'hand');
+    } catch {}
+  }
+}
+
+async function drinkPotions() {
+  const potion = bot.inventory.items().find(item => {
+    if (!isPotion(item)) return false;
+    const name = item.displayName.toLowerCase();
+    return (
+      name.includes('healing') ||
+      name.includes('regeneration') ||
+      name.includes('strength') ||
+      name.includes('swiftness')
+    );
   });
-}
-
-function usePotionIfLow() {
-  if (bot.health < 10) {
-    const potion = bot.inventory.items().find(i => mcData.items[i.type]?.name.includes('potion'));
-    if (potion) {
-      bot.equip(potion, 'hand')
-        .then(() => bot.consume())
-        .catch(err => log(`Potion error: ${err.message}`));
-    }
+  if (potion) {
+    try {
+      await bot.equip(potion, 'hand');
+      await bot.useOnSelf();
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    } catch {}
   }
 }
 
-async function runLoop() {
-  while (true) {
-    if (!isRunning || sleeping) {
-      await delay(3000);
-      continue;
-    }
-
-    const dayTime = bot.time.dayTime;
-    if (dayTime >= 13000 && dayTime <= 23458) {
-      await sleepRoutine();
-    } else {
-      await randomWander();
-    }
-
-    await delay(5000);
+async function eatFood() {
+  const food = bot.inventory.items().find(isEdible);
+  if (food && bot.food < 20) {
+    try {
+      await bot.eat(food);
+    } catch {}
   }
 }
 
-async function sleepRoutine() {
-  if (sleeping) return;
+async function wander() {
+  if (!bot.entity) return;
+  const pos = bot.entity.position;
+  // Random walk near current position within wanderRadius
+  const randomX = pos.x + (Math.random() * config.wanderRadius * 2 - config.wanderRadius);
+  const randomZ = pos.z + (Math.random() * config.wanderRadius * 2 - config.wanderRadius);
+  const goal = new GoalNear(randomX, pos.y, randomZ, 1);
+  bot.pathfinder.setGoal(goal, false);
+}
 
-  const bed = bot.findBlock({
-    matching: b => bot.isABed(b),
-    maxDistance: 32
-  });
+async function sleepOnBed() {
+  if (!config.sleepAtNight) return;
+  const time = bot.time.timeOfDay;
+  // Nighttime is between 12541 and 23458 ticks
+  if (time < 12541 || time > 23458) return;
 
-  if (!bed) {
-    log('No bed found nearby.');
-    return;
-  }
-
-  log(`Heading to bed at ${bed.position}`);
-  try {
-    await bot.pathfinder.goto(new GoalNear(bed.position.x, bed.position.y, bed.position.z, 1));
-    await bot.sleep(bed);
-    sleeping = true;
-    bot.chat("Sleeping now...");
-    log('Sleeping...');
-
-    bot.once('wake', () => {
-      sleeping = false;
-      bot.chat("Woke up!");
-      log('Woke up from sleep.');
+  if (!bedBlock) {
+    bedBlock = bot.findBlock({
+      matching: (block) => block.name.includes('bed'),
+      maxDistance: 32,
     });
-  } catch (e) {
-    log(`Sleep failed: ${e.message}`);
-    bot.chat(`Sleep failed: ${e.message}`);
+  }
+
+  if (!bedBlock) return;
+
+  const goal = new GoalNear(bedBlock.position.x, bedBlock.position.y, bedBlock.position.z, 1);
+  bot.pathfinder.setGoal(goal, false);
+
+  if (bot.entity.position.distanceTo(bedBlock.position) < 2) {
+    try {
+      await bot.sleep(bedBlock.position);
+      console.log('Sleeping on bed...');
+      await new Promise(resolve => setTimeout(resolve, 5000)); // Sleep time
+      await bot.wake();
+      console.log('Woke up from bed');
+    } catch (err) {
+      console.log('Could not sleep:', err.message);
+    }
   }
 }
 
-async function randomWander() {
-  const xOffset = Math.floor(Math.random() * 20) - 10;
-  const zOffset = Math.floor(Math.random() * 20) - 10;
-  const target = bot.entity.position.offset(xOffset, 0, zOffset);
-  await goTo(target);
+async function returnToDeathLocation() {
+  if (!deathLocation) return;
+  const goal = new GoalNear(deathLocation.x, deathLocation.y, deathLocation.z, 1);
+  bot.pathfinder.setGoal(goal, false);
+  if (bot.entity.position.distanceTo(deathLocation) < 2) {
+    deathLocation = null;
+  }
 }
 
-async function goTo(pos) {
+async function startFight(player) {
+  if (isFighting) return;
+  isFighting = true;
+  isFleeing = false;
+
+  console.log(`Started fighting with ${player.username}`);
+
+  while (isFighting) {
+    if (bot.health < bot.maxHealth * config.maxFleeHealthPercent) {
+      isFleeing = true;
+      await fleeFrom(player);
+    } else {
+      isFleeing = false;
+      await fightPlayer(player);
+    }
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+}
+
+async function fleeFrom(player) {
+  const botPos = bot.entity.position;
+  const playerPos = player.entity.position;
+
+  const fleeX = botPos.x + (botPos.x - playerPos.x) * 2;
+  const fleeZ = botPos.z + (botPos.z - playerPos.z) * 2;
+  const fleeGoal = new GoalNear(fleeX, botPos.y, fleeZ, 1);
+  bot.pathfinder.setGoal(fleeGoal, false);
+
+  const start = Date.now();
+  while (bot.health < bot.maxHealth * config.returnFightHealthPercent && Date.now() - start < 5000) {
+    await eatFood();
+    await drinkPotions();
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+  isFleeing = false;
+}
+
+async function fightPlayer(player) {
+  if (!player.entity) return;
+
+  await equipArmor();
+  await equipShield();
+  await equipWeapon();
+  await drinkPotions();
+
+  const goal = new GoalNear(player.entity.position.x, player.entity.position.y, player.entity.position.z, 1);
+  bot.pathfinder.setGoal(goal);
+
   try {
-    await bot.pathfinder.goto(new GoalNear(pos.x, pos.y, pos.z, 1));
-  } catch (e) {
-    log(`Navigation error: ${e.message}`);
+    await bot.pvp.attack(player);
+  } catch {}
+
+  if (bot.entity.onGround) {
+    bot.setControlState('jump', true);
+    setTimeout(() => bot.setControlState('jump', false), 200);
   }
+  await eatFood();
 }
 
-function delay(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+function stopFight() {
+  isFighting = false;
+  bot.pathfinder.setGoal(null);
 }
 
-createBot();
+bot.once('spawn', () => {
+  mcData = mcDataLib(bot.version);
+  bot.mcData = mcData;
+
+  bot.loadPlugin(pathfinder);
+  bot.loadPlugin(autoEat);
+  bot.loadPlugin(armorManager);
+  bot.loadPlugin(pvp);
+
+  defaultMove = new Movements(bot, mcData);
+  bot.pathfinder.setMovements(defaultMove);
+
+  bot.autoEat.options = {
+    priority: 'food',
+    startAt: 14,
+    bannedFood: []
+  };
+
+  bot.on('windowUpdate', () => {
+    equipArmor();
+    equipShield();
+  });
+
+  bot.on('entityHurt', (entity) => {
+    if (entity === bot.entity && entity.lastDamageSource) {
+      const attacker = bot.players[entity.lastDamageSource.username];
+      if (attacker && attacker.entity) {
+        console.log(`${attacker.username} attacked me! Starting fight.`);
+        startFight(attacker.entity);
+      }
+    }
+  });
+
+  bot.on('death', () => {
+    console.log('I died!');
+    deathLocation = bot.entity.position.clone();
+    stopFight();
+  });
+
+  bot.on('respawn', () => {
+    console.log('Respawned');
+    if (deathLocation) {
+      returnToDeathLocation();
+    }
+  });
+
+  setInterval(async () => {
+    if (!bot.entity) return;
+
+    if (!isFighting && !isFleeing) {
+      await sleepOnBed();
+      await wander();
+      await eatFood();
+    }
+  }, config.wanderIntervalSec * 1000);
+});
+
+bot.on('error', err => console.log('Error:', err));
+bot.on('kicked', reason => console.log('Kicked:', reason));
