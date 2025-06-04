@@ -1,4 +1,5 @@
 const mineflayer = require('mineflayer');
+const mcDataLib = require('minecraft-data');
 const { pathfinder, Movements, goals: { GoalNear } } = require('mineflayer-pathfinder');
 const autoEat = require('mineflayer-auto-eat');
 const pvp = require('mineflayer-pvp').plugin;
@@ -30,19 +31,19 @@ function createBot() {
     auth: 'offline'
   });
 
+  // Load mcData immediately using bot.version (should be "1.19.2")
+  mcData = mcDataLib(bot.version || config.version);
+
+  // Load plugins after mcData is ready
+  bot.loadPlugin(pathfinder);
+  bot.loadPlugin(autoEat);
+  bot.loadPlugin(pvp);
+  bot.loadPlugin(armorManager);
+
   bot.once('login', () => log('Bot logged in to the server.'));
 
   bot.once('spawn', async () => {
     log('Bot has spawned in the world.');
-
-    // Load mcData only after bot.spawned and version available
-    mcData = require('minecraft-data')(bot.version);
-
-    // Load plugins AFTER mcData is set
-    bot.loadPlugin(pathfinder);
-    bot.loadPlugin(autoEat);
-    bot.loadPlugin(pvp);
-    bot.loadPlugin(armorManager);
 
     defaultMove = new Movements(bot, mcData);
     defaultMove.canDig = false;
