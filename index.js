@@ -35,8 +35,9 @@ function createBot() {
   bot.once('spawn', async () => {
     log('Bot has spawned in the world.');
 
-    mcData = require('minecraft-data')(bot.version); // FIXED: mcData before plugins
+    mcData = require('minecraft-data')(bot.version);
 
+    // ✅ Plugins should load after mcData
     bot.loadPlugin(pathfinder);
     bot.loadPlugin(autoEat);
     bot.loadPlugin(pvp);
@@ -72,7 +73,6 @@ function createBot() {
     runLoop();
   });
 
-  // ✅ Auto register/login logic
   bot.on('message', msg => {
     const text = msg.toString().toLowerCase();
     log(`Server Message: ${text}`);
