@@ -2,7 +2,7 @@ const mineflayer = require('mineflayer');
 const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
 const armorManager = require('mineflayer-armor-manager');
 const autoeat = require('mineflayer-auto-eat');
-const pvp = require('mineflayer-pvp').plugin;
+const pvp = require('mineflayer-pvp'); // ✅ FIXED: no `.plugin` here
 const fs = require('fs');
 
 const config = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
@@ -20,7 +20,7 @@ const bot = mineflayer.createBot({
 bot.loadPlugin(pathfinder);
 bot.loadPlugin(armorManager);
 bot.loadPlugin(autoeat);
-bot.loadPlugin(pvp);
+bot.loadPlugin(pvp); // ✅ FIXED: pvp is a plugin already
 
 bot.once('spawn', () => {
   console.log('[Bot] Spawned in the world');
@@ -139,7 +139,7 @@ function sleepIfNight() {
 
 setInterval(sleepIfNight, 10000);
 
-// 💬 Auto register/login on server messages
+// ✅ Auto register/login
 bot.on('message', msg => {
   if (alreadyLoggedIn) return;
 
