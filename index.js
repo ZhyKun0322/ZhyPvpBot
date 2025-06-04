@@ -1,7 +1,8 @@
 const mineflayer = require('mineflayer');
 const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
 const autoeat = require('mineflayer-auto-eat').plugin;
-const armorManager = require('mineflayer-armor-manager').plugin; // ✅ FIXED
+const armorManager = require('mineflayer-armor-manager');
+const armorPlugin = armorManager.default || armorManager;
 const pvp = require('mineflayer-pvp').plugin;
 const fs = require('fs');
 
@@ -17,10 +18,10 @@ const bot = mineflayer.createBot({
   version: config.version
 });
 
-// ✅ Load plugins (must be functions!)
+// Load plugins
 bot.loadPlugin(pathfinder);
 bot.loadPlugin(autoeat);
-bot.loadPlugin(armorManager); // ✅ Correct now
+bot.loadPlugin(armorPlugin); // fixed and future-proof
 bot.loadPlugin(pvp);
 
 bot.once('spawn', () => {
