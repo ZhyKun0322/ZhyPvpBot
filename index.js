@@ -1,8 +1,8 @@
 const mineflayer = require('mineflayer');
 const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
-const armorManager = require('mineflayer-armor-manager');
 const autoeat = require('mineflayer-auto-eat');
-const pvp = require('mineflayer-pvp').plugin; // ✅ FIXED
+const armorManager = require('mineflayer-armor-manager').plugin; // ✅ FIXED
+const pvp = require('mineflayer-pvp').plugin;
 const fs = require('fs');
 
 const config = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
@@ -11,23 +11,27 @@ let enemy = null;
 let respawnPos = null;
 
 const bot = mineflayer.createBot({
-  username: config.username,
   host: config.host,
   port: config.port,
+  username: config.username,
   version: config.version
 });
 
+// ✅ Load plugins
 bot.loadPlugin(pathfinder);
-bot.loadPlugin(armorManager);
 bot.loadPlugin(autoeat);
-bot.loadPlugin(pvp); // ✅ FIXED
+bot.loadPlugin(armorManager);
+bot.loadPlugin(pvp);
 
 bot.once('spawn', () => {
   console.log('[Bot] Spawned in the world');
 
   const defaultMove = new Movements(bot);
   bot.pathfinder.setMovements(defaultMove);
+  respawnPos = bot.entity.position.clone();
+  equipArmorAndWeapons();
 
+  // Roam around randomly
   setInterval(() => {
     if (!enemy && bot.health >= config.healthThreshold) {
       const x = bot.entity.position.x + (Math.random() - 0.5) * 16;
@@ -36,9 +40,6 @@ bot.once('spawn', () => {
       bot.pathfinder.setGoal(new goals.GoalNear(x, y, z, 1));
     }
   }, config.wanderInterval);
-
-  equipArmorAndWeapons();
-  respawnPos = bot.entity.position.clone();
 });
 
 function equipArmorAndWeapons() {
@@ -55,20 +56,20 @@ function equipArmorAndWeapons() {
 }
 
 bot.on('entityHurt', (entity) => {
-  if (entity.type === 'player' && bot.entity.isValid && entity.position.distanceTo(bot.entity.position) < 6) {
+  if (entity.type === 'player' && entity.position.distanceTo(bot.entity.position) < 6) {
     enemy = entity;
     fightEnemy();
   }
 });
 
 function fightEnemy() {
-  if (!enemy || enemy.isValid === false) return;
+  if (!enemy || !enemy.isValid) return;
 
   bot.pvp.attack(enemy);
   console.log('[Bot] Engaged in PvP');
 
   const fightInterval = setInterval(() => {
-    if (!enemy || enemy.isValid === false || bot.health <= 0) {
+    if (!enemy || !enemy.isValid || bot.health <= 0) {
       clearInterval(fightInterval);
       enemy = null;
       return;
@@ -87,22 +88,51 @@ function fightEnemy() {
 function usePotion() {
   const potion = bot.inventory.items().find(item => item.name.includes('potion'));
   if (potion) {
-    bot.equip(potion, 'hand').then(() => {
-      bot.activateItem();
-    });
+    bot.equip(potion, 'hand').then(() => bot.activateItem());
   }
 }
 
-bot.on('health', () => {
-  if (bot.health < config.healthThreshold) {
-    bot.pvp.stop();
+// 🍽️ Auto eat
+bot.on('autoeat_started', () => {
+  console.log('[Bot] Eating...');
+});
+
+// 💤 Sleep when night
+function sleepIfNight() {
+  const bed = bot.findBlock({
+    matching: block => bot.isABed(block),
+    maxDistance: 16
+  });
+
+  if (bot.time.isNight() && bed) {
+    bot.pathfinder.setGoal(new goals.GoalBlock(bed.position.x, bed.position.y, bed.position.z));
+    bot.once('goal_reached', async () => {
+      try {
+        await bot.sleep(bed);
+        console.log('[Bot] Sleeping...');
+      } catch (err) {
+        console.log('[Bot] Sleep failed:', err.message);
+      }
+    });
+  }
+}
+setInterval(sleepIfNight, 10000);
+
+// 💬 Auto register/login
+bot.on('message', msg => {
+  if (alreadyLoggedIn) return;
+
+  const text = msg.toString().toLowerCase();
+  if (text.includes('register')) {
+    bot.chat(`/register ${config.password} ${config.password}`);
+    alreadyLoggedIn = true;
+  } else if (text.includes('login')) {
+    bot.chat(`/login ${config.password}`);
+    alreadyLoggedIn = true;
   }
 });
 
-bot.on('autoeat_started', () => {
-  console.log("[Bot] Eating to stay alive...");
-});
-
+// ☠️ Handle death and respawn
 bot.on('death', () => {
   console.log('[Bot] I died...');
 });
@@ -118,37 +148,8 @@ bot.on('respawn', () => {
   }, 2000);
 });
 
-function sleepIfNight() {
-  const bed = bot.findBlock({
-    matching: block => bot.isABed(block),
-    maxDistance: 16
-  });
-
-  if (bot.time.isNight() && bed) {
-    bot.pathfinder.setGoal(new goals.GoalBlock(bed.position.x, bed.position.y, bed.position.z));
-    bot.once('goal_reached', async () => {
-      try {
-        await bot.sleep(bed);
-        console.log("[Bot] Sleeping...");
-      } catch (err) {
-        console.log("[Bot] Sleep failed:", err.message);
-      }
-    });
-  }
-}
-
-setInterval(sleepIfNight, 10000);
-
-// ✅ Auto register/login
-bot.on('message', msg => {
-  if (alreadyLoggedIn) return;
-
-  const text = msg.toString().toLowerCase();
-  if (text.includes('register')) {
-    bot.chat(`/register ${config.password} ${config.password}`);
-    alreadyLoggedIn = true;
-  } else if (text.includes('login')) {
-    bot.chat(`/login ${config.password}`);
-    alreadyLoggedIn = true;
+bot.on('health', () => {
+  if (bot.health < config.healthThreshold) {
+    bot.pvp.stop();
   }
 });
