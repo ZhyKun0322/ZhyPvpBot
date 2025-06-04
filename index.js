@@ -1,6 +1,6 @@
 const mineflayer = require('mineflayer');
 const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
-const autoeat = require('mineflayer-auto-eat');
+const autoeat = require('mineflayer-auto-eat').plugin;
 const armorManager = require('mineflayer-armor-manager').plugin; // ✅ FIXED
 const pvp = require('mineflayer-pvp').plugin;
 const fs = require('fs');
@@ -17,10 +17,10 @@ const bot = mineflayer.createBot({
   version: config.version
 });
 
-// ✅ Load plugins
+// ✅ Load plugins (must be functions!)
 bot.loadPlugin(pathfinder);
 bot.loadPlugin(autoeat);
-bot.loadPlugin(armorManager);
+bot.loadPlugin(armorManager); // ✅ Correct now
 bot.loadPlugin(pvp);
 
 bot.once('spawn', () => {
@@ -31,7 +31,6 @@ bot.once('spawn', () => {
   respawnPos = bot.entity.position.clone();
   equipArmorAndWeapons();
 
-  // Roam around randomly
   setInterval(() => {
     if (!enemy && bot.health >= config.healthThreshold) {
       const x = bot.entity.position.x + (Math.random() - 0.5) * 16;
@@ -48,11 +47,11 @@ function equipArmorAndWeapons() {
   const bow = bot.inventory.items().find(item => item.name.includes('bow'));
   const arrows = bot.inventory.items().find(item => item.name.includes('arrow'));
 
-  if (sword) bot.equip(sword, 'hand');
-  if (shield) bot.equip(shield, 'off-hand');
-  if (bow && arrows) bot.equip(bow, 'hand');
+  if (sword) bot.equip(sword, 'hand').catch(console.error);
+  if (shield) bot.equip(shield, 'off-hand').catch(console.error);
+  if (bow && arrows) bot.equip(bow, 'hand').catch(console.error);
 
-  bot.armorManager.equipAll();
+  bot.armorManager.equipAll().catch(console.error);
 }
 
 bot.on('entityHurt', (entity) => {
@@ -88,23 +87,26 @@ function fightEnemy() {
 function usePotion() {
   const potion = bot.inventory.items().find(item => item.name.includes('potion'));
   if (potion) {
-    bot.equip(potion, 'hand').then(() => bot.activateItem());
+    bot.equip(potion, 'hand')
+      .then(() => bot.activateItem())
+      .catch(console.error);
   }
 }
 
-// 🍽️ Auto eat
 bot.on('autoeat_started', () => {
   console.log('[Bot] Eating...');
 });
 
-// 💤 Sleep when night
+// Sleep at night if bed found
 function sleepIfNight() {
+  if (!bot.time.isNight()) return;
+
   const bed = bot.findBlock({
     matching: block => bot.isABed(block),
     maxDistance: 16
   });
 
-  if (bot.time.isNight() && bed) {
+  if (bed) {
     bot.pathfinder.setGoal(new goals.GoalBlock(bed.position.x, bed.position.y, bed.position.z));
     bot.once('goal_reached', async () => {
       try {
@@ -118,7 +120,7 @@ function sleepIfNight() {
 }
 setInterval(sleepIfNight, 10000);
 
-// 💬 Auto register/login
+// Login/Register auto
 bot.on('message', msg => {
   if (alreadyLoggedIn) return;
 
@@ -132,7 +134,7 @@ bot.on('message', msg => {
   }
 });
 
-// ☠️ Handle death and respawn
+// Respawn handling
 bot.on('death', () => {
   console.log('[Bot] I died...');
 });
