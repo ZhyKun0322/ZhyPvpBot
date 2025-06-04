@@ -8,7 +8,9 @@ const Vec3 = require('vec3');
 const fs = require('fs');
 const config = require('./config.json');
 
-let bot, mcData, defaultMove;
+let bot;
+let mcData;
+let defaultMove;
 let sleeping = false;
 let isRunning = true;
 let alreadyLoggedIn = false;
@@ -31,22 +33,20 @@ function createBot() {
     auth: 'offline'
   });
 
-  // Load mcData immediately using bot.version (should be "1.19.2")
-  mcData = mcDataLib(bot.version || config.version);
-
-  // IMPORTANT: assign bot.mcData BEFORE loading pathfinder plugin
-  bot.mcData = mcData;
-
-  // Load plugins after mcData is ready
-  bot.loadPlugin(pathfinder);
-  bot.loadPlugin(autoEat);
-  bot.loadPlugin(pvp);
-  bot.loadPlugin(armorManager);
-
   bot.once('login', () => log('Bot logged in to the server.'));
 
   bot.once('spawn', async () => {
     log('Bot has spawned in the world.');
+
+    // Load mcData here, after spawn so bot.version is defined
+    mcData = mcDataLib(bot.version);
+    bot.mcData = mcData;
+
+    // Load plugins that depend on mcData AFTER loading mcData
+    bot.loadPlugin(pathfinder);
+    bot.loadPlugin(autoEat);
+    bot.loadPlugin(pvp);
+    bot.loadPlugin(armorManager);
 
     defaultMove = new Movements(bot, mcData);
     defaultMove.canDig = false;
