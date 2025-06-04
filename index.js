@@ -3,10 +3,10 @@ const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
 const armorManager = require('mineflayer-armor-manager');
 const autoeat = require('mineflayer-auto-eat');
 const pvp = require('mineflayer-pvp').plugin;
-const { GoalNear } = goals;
 const fs = require('fs');
 
 const config = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
+let alreadyLoggedIn = false;
 let enemy = null;
 let respawnPos = null;
 
@@ -33,7 +33,7 @@ bot.once('spawn', () => {
       const x = bot.entity.position.x + (Math.random() - 0.5) * 16;
       const z = bot.entity.position.z + (Math.random() - 0.5) * 16;
       const y = bot.entity.position.y;
-      bot.pathfinder.setGoal(new GoalNear(x, y, z, 1));
+      bot.pathfinder.setGoal(new goals.GoalNear(x, y, z, 1));
     }
   }, config.wanderInterval);
 
@@ -77,7 +77,7 @@ function fightEnemy() {
     if (bot.health < config.healthThreshold) {
       console.log('[Bot] Low health! Retreating...');
       bot.pvp.stop();
-      bot.pathfinder.setGoal(new GoalNear(respawnPos.x, respawnPos.y, respawnPos.z, 2));
+      bot.pathfinder.setGoal(new goals.GoalNear(respawnPos.x, respawnPos.y, respawnPos.z, 2));
     } else {
       usePotion();
     }
@@ -113,7 +113,7 @@ bot.on('respawn', () => {
     equipArmorAndWeapons();
     bot.chat('Back from death!');
     if (respawnPos) {
-      bot.pathfinder.setGoal(new GoalNear(respawnPos.x, respawnPos.y, respawnPos.z, 2));
+      bot.pathfinder.setGoal(new goals.GoalNear(respawnPos.x, respawnPos.y, respawnPos.z, 2));
     }
   }, 2000);
 });
@@ -138,3 +138,17 @@ function sleepIfNight() {
 }
 
 setInterval(sleepIfNight, 10000);
+
+// 💬 Auto register/login on server messages
+bot.on('message', msg => {
+  if (alreadyLoggedIn) return;
+
+  const text = msg.toString().toLowerCase();
+  if (text.includes('register')) {
+    bot.chat(`/register ${config.password} ${config.password}`);
+    alreadyLoggedIn = true;
+  } else if (text.includes('login')) {
+    bot.chat(`/login ${config.password}`);
+    alreadyLoggedIn = true;
+  }
+});
