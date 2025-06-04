@@ -21,7 +21,13 @@ const bot = mineflayer.createBot({
 bot.loadPlugin(pathfinder);
 bot.loadPlugin(autoeat);
 bot.loadPlugin(pvp);
-armorManager(bot); // directly bind to bot
+armorManager(bot);
+
+// Override the playerCollect event handler to prevent errors
+bot.on('playerCollect', (collector, collected) => {
+  // Custom logic or simply return to prevent default handler
+  return;
+});
 
 // On spawn
 bot.once('spawn', () => {
