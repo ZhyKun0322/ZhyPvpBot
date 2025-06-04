@@ -2,6 +2,10 @@
   "host": "KingdomOfYggdrasil.aternos.me",
   "port": 52364,
   "username": "ZhyPvp",
-  "password": "ZhyPvp22",
-  "version": "1.19.2"
+  "wanderRadius": 10,
+  "wanderIntervalSec": 15,
+  "sleepAtNight": true,
+  "maxFleeHealthPercent": 0.3,
+  "returnFightHealthPercent": 0.7,
+  "respawnDelayMs": 5000
 }
