@@ -10,7 +10,6 @@ const config = require('./config.json');
 let bot, mcData, defaultMove;
 let sleeping = false;
 let isRunning = true;
-let isEating = false;
 let alreadyLoggedIn = false;
 let target = null;
 
@@ -31,13 +30,11 @@ function createBot() {
     auth: 'offline'
   });
 
-  bot.once('login', () => {
-    log('Bot logged in to the server.');
-  });
+  bot.once('login', () => log('Bot logged in to the server.'));
 
   bot.once('spawn', () => {
     log('Bot has spawned in the world.');
-    mcData = require('minecraft-data')(bot.version); // ✅ Must be before plugin load
+    mcData = require('minecraft-data')(bot.version);
 
     bot.loadPlugin(pathfinder);
     bot.loadPlugin(autoEat);
@@ -45,18 +42,21 @@ function createBot() {
     bot.loadPlugin(armorManager);
 
     defaultMove = new Movements(bot, mcData);
-    defaultMove.allow1by1tallDoors = true;
     defaultMove.canDig = false;
     bot.pathfinder.setMovements(defaultMove);
 
-    bot.autoEat.options.priority = 'foodPoints';
-    bot.autoEat.options.bannedFood = [];
+    bot.autoEat.options = {
+      priority: 'foodPoints',
+      startAt: 18,
+      bannedFood: [],
+    };
 
     bot.on('chat', onChat);
     bot.on('physicsTick', () => {
-      eatIfHungry();
-      equipArmor();
+      equipArmorAndWeapons();
+      usePotionIfLow();
     });
+
     bot.on('entityHurt', onEntityHurt);
 
     runLoop();
@@ -80,6 +80,19 @@ function createBot() {
   bot.on('end', () => {
     log('Bot disconnected. Reconnecting in 5 seconds...');
     setTimeout(createBot, 5000);
+  });
+
+  // Handle auto-eat errors
+  bot.on('autoeat_error', (err) => {
+    log(`AutoEat error: ${err.message}`);
+  });
+
+  bot.on('autoeat_started', () => {
+    log("Auto-eat started.");
+  });
+
+  bot.on('autoeat_finished', () => {
+    log("Auto-eat finished.");
   });
 }
 
@@ -121,25 +134,27 @@ function onEntityHurt(victim) {
   }
 }
 
-function eatIfHungry() {
-  if (isEating || bot.food >= 18) return;
-  const food = bot.inventory.items().find(i => mcData.items[i.type].food);
-  if (food) {
-    isEating = true;
-    bot.equip(food, 'hand')
-      .then(() => bot.consume())
-      .catch(err => log(`Error eating: ${err.message}`))
-      .finally(() => isEating = false);
-  }
+function equipArmorAndWeapons() {
+  bot.inventory.items().forEach(item => {
+    const name = mcData.items[item.type].name;
+    if (name.includes('helmet')) bot.armorManager.equip(item, 'head');
+    else if (name.includes('chestplate')) bot.armorManager.equip(item, 'torso');
+    else if (name.includes('leggings')) bot.armorManager.equip(item, 'legs');
+    else if (name.includes('boots')) bot.armorManager.equip(item, 'feet');
+    else if (name.includes('sword')) bot.equip(item, 'hand');
+    else if (name.includes('shield')) bot.equip(item, 'off-hand');
+  });
 }
 
-function equipArmor() {
-  bot.inventory.items().forEach(item => {
-    if (mcData.items[item.type].name.includes('helmet')) bot.armorManager.equip(item, 'head');
-    else if (mcData.items[item.type].name.includes('chestplate')) bot.armorManager.equip(item, 'torso');
-    else if (mcData.items[item.type].name.includes('leggings')) bot.armorManager.equip(item, 'legs');
-    else if (mcData.items[item.type].name.includes('boots')) bot.armorManager.equip(item, 'feet');
-  });
+function usePotionIfLow() {
+  if (bot.health < 10) {
+    const potion = bot.inventory.items().find(i => mcData.items[i.type].name.includes('potion'));
+    if (potion) {
+      bot.equip(potion, 'hand')
+        .then(() => bot.consume())
+        .catch(err => log(`Potion error: ${err.message}`));
+    }
+  }
 }
 
 async function runLoop() {
