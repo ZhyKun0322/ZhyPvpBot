@@ -11,6 +11,7 @@ let bot, mcData, defaultMove;
 let sleeping = false;
 let isRunning = true;
 let alreadyLoggedIn = false;
+let deathPosition = null;
 
 function log(msg) {
   const time = new Date().toISOString();
@@ -53,6 +54,19 @@ function createBot() {
     bot.on('physicsTick', () => {
       equipArmorAndWeapons();
       usePotionIfLow();
+    });
+
+    bot.on('death', () => {
+      deathPosition = bot.entity.position.clone();
+      log('Bot has died.');
+    });
+
+    bot.on('spawn', () => {
+      if (deathPosition) {
+        log('Attempting to recover items...');
+        goTo(deathPosition);
+        deathPosition = null;
+      }
     });
 
     runLoop();
@@ -128,6 +142,7 @@ function equipArmorAndWeapons() {
       else if (name.includes('boots')) bot.armorManager.equip(item, 'feet');
       else if (name.includes('sword')) bot.equip(item, 'hand');
       else if (name.includes('shield')) bot.equip(item, 'off-hand');
+      else if (name.includes('bow')) bot.equip(item, 'hand');
     } catch (e) {
       log(`Equip error: ${e.message}`);
     }
