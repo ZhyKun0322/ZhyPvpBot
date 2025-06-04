@@ -36,10 +36,8 @@ function createBot() {
   bot.once('spawn', async () => {
     log('Bot has spawned in the world.');
 
-    // Load mcData after spawn
+    // Initialize mcData and load plugins
     mcData = require('minecraft-data')(bot.version);
-
-    // Load plugins after mcData is available
     bot.loadPlugin(pathfinder);
     bot.loadPlugin(autoEat);
     bot.loadPlugin(pvp);
