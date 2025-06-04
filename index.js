@@ -10,6 +10,7 @@ const config = require('./config.json');
 let bot, mcData, defaultMove;
 let sleeping = false;
 let isRunning = true;
+let isEating = false;
 let alreadyLoggedIn = false;
 let target = null;
 
@@ -45,11 +46,8 @@ function createBot() {
     defaultMove.canDig = false;
     bot.pathfinder.setMovements(defaultMove);
 
-    bot.autoEat.options = {
-      priority: 'foodPoints',
-      startAt: 18,
-      bannedFood: [],
-    };
+    bot.autoEat.options.priority = 'foodPoints';
+    bot.autoEat.options.bannedFood = [];
 
     bot.on('chat', onChat);
     bot.on('physicsTick', () => {
@@ -81,19 +79,6 @@ function createBot() {
     log('Bot disconnected. Reconnecting in 5 seconds...');
     setTimeout(createBot, 5000);
   });
-
-  // Handle auto-eat errors
-  bot.on('autoeat_error', (err) => {
-    log(`AutoEat error: ${err.message}`);
-  });
-
-  bot.on('autoeat_started', () => {
-    log("Auto-eat started.");
-  });
-
-  bot.on('autoeat_finished', () => {
-    log("Auto-eat finished.");
-  });
 }
 
 function onChat(username, message) {
@@ -110,27 +95,25 @@ function onChat(username, message) {
     bot.chat("Trying to sleep...");
     sleepRoutine();
   }
-  if (message === '!roam') {
-    bot.chat("Roaming inside the house...");
-    houseRoamRoutine();
-  }
-  if (message === '!defend') {
-    bot.chat("Enabling defense mode.");
-    target = null;
-  }
-  if (message === '!stopdefend') {
-    bot.chat("Defense mode off.");
-    target = null;
+  if (message === '!wander') {
+    bot.chat("Wandering...");
+    randomWander();
   }
 }
 
 function onEntityHurt(victim) {
-  if (!isRunning || sleeping || victim.type !== 'player') return;
-  const attacker = Object.values(bot.entities).find(e => e.type === 'player' && e !== bot.entity);
+  if (!isRunning || sleeping) return;
+  if (victim !== bot.entity) return;
+
+  const attacker = Object.values(bot.entities).find(e =>
+    e.type === 'player' &&
+    e.position.distanceTo(bot.entity.position) < 6
+  );
+
   if (attacker) {
     target = attacker;
     bot.pvp.attack(target);
-    log(`Defending against: ${attacker.username}`);
+    log(`Attacked by: ${attacker.username} – Counterattacking.`);
   }
 }
 
@@ -168,8 +151,7 @@ async function runLoop() {
     if (dayTime >= 13000 && dayTime <= 23458) {
       await sleepRoutine();
     } else {
-      await searchFoodInChests();
-      await houseRoamRoutine();
+      await randomWander();
     }
 
     await delay(5000);
@@ -178,9 +160,10 @@ async function runLoop() {
 
 async function sleepRoutine() {
   if (sleeping) return;
+
   const bed = bot.findBlock({
     matching: b => bot.isABed(b),
-    maxDistance: config.searchRange
+    maxDistance: 32
   });
 
   if (!bed) {
@@ -190,8 +173,7 @@ async function sleepRoutine() {
 
   log(`Heading to bed at ${bed.position}`);
   try {
-    await goTo(config.entrance);
-    await goTo(bed.position);
+    await bot.pathfinder.goto(new GoalNear(bed.position.x, bed.position.y, bed.position.z, 1));
     await bot.sleep(bed);
     sleeping = true;
     bot.chat("Sleeping now...");
@@ -208,39 +190,11 @@ async function sleepRoutine() {
   }
 }
 
-async function searchFoodInChests() {
-  for (let chestPos of config.chestPositions) {
-    const block = bot.blockAt(new Vec3(chestPos.x, chestPos.y, chestPos.z));
-    if (!block) continue;
-
-    try {
-      const chest = await bot.openContainer(block);
-      const food = chest.containerItems().find(i => i && mcData.items[i.type].food);
-      if (food) {
-        const toWithdraw = Math.min(food.count, food.type);
-        await chest.withdraw(food.type, null, toWithdraw);
-        log(`Withdrew ${toWithdraw} of ${mcData.items[food.type].name}`);
-      }
-      chest.close();
-    } catch (e) {
-      log(`Chest error: ${e.message}`);
-    }
-  }
-}
-
-async function houseRoamRoutine() {
-  log('Roaming inside house.');
-  bot.chat(config.chatAnnouncements.houseMessage);
-  const radius = config.houseRadius;
-
-  for (let i = 0; i < 5; i++) {
-    if (sleeping) return;
-    const dx = Math.floor(Math.random() * (radius * 2 + 1)) - radius;
-    const dz = Math.floor(Math.random() * (radius * 2 + 1)) - radius;
-    const target = new Vec3(config.houseCenter.x + dx, config.houseCenter.y, config.houseCenter.z + dz);
-    await goTo(target);
-    await delay(3000);
-  }
+async function randomWander() {
+  const xOffset = Math.floor(Math.random() * 20) - 10;
+  const zOffset = Math.floor(Math.random() * 20) - 10;
+  const target = bot.entity.position.offset(xOffset, 0, zOffset);
+  await goTo(target);
 }
 
 async function goTo(pos) {
