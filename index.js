@@ -18,11 +18,7 @@ function log(msg) {
   const time = new Date().toISOString();
   const fullMsg = `[${time}] ${msg}`;
   console.log(fullMsg);
-  try {
-    fs.appendFileSync('logs.txt', fullMsg + '\n');
-  } catch (e) {
-    console.error('Failed to write log:', e.message);
-  }
+  fs.appendFileSync('logs.txt', fullMsg + '\n');
 }
 
 function createBot() {
@@ -31,29 +27,33 @@ function createBot() {
     host: config.host,
     port: config.port,
     username: config.username,
-    password: config.password || undefined,
     version: config.version,
-    auth: config.auth || 'offline'  // Change to 'mojang' or 'microsoft' if needed
+    auth: 'offline'
   });
 
+  // Load mcData immediately using bot.version (should be "1.19.2")
+  mcData = mcDataLib(bot.version || config.version);
+
+  // IMPORTANT: assign bot.mcData BEFORE loading pathfinder plugin
+  bot.mcData = mcData;
+
+  // Load plugins after mcData is ready
   bot.loadPlugin(pathfinder);
   bot.loadPlugin(autoEat);
   bot.loadPlugin(pvp);
   bot.loadPlugin(armorManager);
 
   bot.once('login', () => log('Bot logged in to the server.'));
+
   bot.once('spawn', async () => {
     log('Bot has spawned in the world.');
 
-    mcData = mcDataLib(bot.version);
     defaultMove = new Movements(bot, mcData);
     defaultMove.canDig = false;
     bot.pathfinder.setMovements(defaultMove);
 
-    bot.autoEat.options = {
-      priority: 'foodPoints',
-      bannedFood: []
-    };
+    bot.autoEat.options.priority = 'foodPoints';
+    bot.autoEat.options.bannedFood = [];
 
     bot.on('chat', onChat);
     bot.on('entityHurt', onEntityHurt);
@@ -67,23 +67,21 @@ function createBot() {
       log('Bot has died.');
     });
 
-    bot.once('spawn', () => {
+    bot.on('spawn', () => {
       if (deathPosition) {
         log('Attempting to recover items...');
-        goTo(deathPosition).catch(e => log(`Failed to recover items: ${e.message}`));
+        goTo(deathPosition);
         deathPosition = null;
       }
     });
 
-    runLoop().catch(e => log(`runLoop error: ${e.message}`));
+    runLoop();
   });
 
   bot.on('message', msg => {
     const text = msg.toString().toLowerCase();
     log(`Server Message: ${text}`);
-
     if (alreadyLoggedIn) return;
-
     if (text.includes('register')) {
       bot.chat(`/register ${config.password} ${config.password}`);
       alreadyLoggedIn = true;
@@ -107,15 +105,21 @@ function onChat(username, message) {
   if (message === '!stop') {
     isRunning = false;
     bot.chat("Bot paused.");
-  } else if (message === '!start') {
+  }
+
+  if (message === '!start') {
     isRunning = true;
     bot.chat("Bot resumed.");
-  } else if (message === '!sleep') {
+  }
+
+  if (message === '!sleep') {
     bot.chat("Trying to sleep...");
-    sleepRoutine().catch(e => log(`Sleep routine error: ${e.message}`));
-  } else if (message === '!wander') {
+    sleepRoutine();
+  }
+
+  if (message === '!wander') {
     bot.chat("Wandering...");
-    randomWander().catch(e => log(`Wander error: ${e.message}`));
+    randomWander();
   }
 }
 
@@ -136,8 +140,7 @@ function onEntityHurt(victim) {
 
 function equipArmorAndWeapons() {
   bot.inventory.items().forEach(item => {
-    if (!item) return;
-    const name = mcData.items[item.type]?.name || '';
+    const name = mcData.items[item.type].name;
     try {
       if (name.includes('helmet')) bot.armorManager.equip(item, 'head');
       else if (name.includes('chestplate')) bot.armorManager.equip(item, 'torso');
@@ -154,7 +157,7 @@ function equipArmorAndWeapons() {
 
 function usePotionIfLow() {
   if (bot.health < 10) {
-    const potion = bot.inventory.items().find(i => mcData.items[i.type]?.name.includes('potion'));
+    const potion = bot.inventory.items().find(i => mcData.items[i.type].name.includes('potion'));
     if (potion) {
       bot.equip(potion, 'hand')
         .then(() => bot.consume())
@@ -171,7 +174,6 @@ async function runLoop() {
     }
 
     const dayTime = bot.time.dayTime;
-    // Nighttime in Minecraft: 13000 - 23458
     if (dayTime >= 13000 && dayTime <= 23458) {
       await sleepRoutine();
     } else {
@@ -203,11 +205,11 @@ async function sleepRoutine() {
     bot.chat("Sleeping now...");
     log('Sleeping...');
 
-    await onceAsync(bot, 'wake');
-
-    sleeping = false;
-    bot.chat("Woke up!");
-    log('Woke up from sleep.');
+    bot.once('wake', () => {
+      sleeping = false;
+      bot.chat("Woke up!");
+      log('Woke up from sleep.');
+    });
   } catch (e) {
     log(`Sleep failed: ${e.message}`);
     bot.chat(`Sleep failed: ${e.message}`);
@@ -231,15 +233,6 @@ async function goTo(pos) {
 
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-// Helper to convert event once into promise
-function onceAsync(emitter, event) {
-  return new Promise(resolve => {
-    emitter.once(event, (...args) => {
-      resolve(...args);
-    });
-  });
 }
 
 createBot();
