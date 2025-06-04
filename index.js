@@ -1,8 +1,7 @@
 const mineflayer = require('mineflayer');
 const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
 const autoeat = require('mineflayer-auto-eat').plugin;
-const armorManager = require('mineflayer-armor-manager');
-const armorPlugin = armorManager.default || armorManager;
+const armorManager = require('mineflayer-armor-manager'); // ✅ Clean load
 const pvp = require('mineflayer-pvp').plugin;
 const fs = require('fs');
 
@@ -21,7 +20,7 @@ const bot = mineflayer.createBot({
 // Load plugins
 bot.loadPlugin(pathfinder);
 bot.loadPlugin(autoeat);
-bot.loadPlugin(armorPlugin); // fixed and future-proof
+bot.loadPlugin(armorManager); // ✅ Direct plugin load
 bot.loadPlugin(pvp);
 
 bot.once('spawn', () => {
@@ -52,8 +51,8 @@ function equipArmorAndWeapons() {
   if (shield) bot.equip(shield, 'off-hand').catch(console.error);
   if (bow && arrows) bot.equip(bow, 'hand').catch(console.error);
 
-  if (bot.armor) {
-    bot.armor.equipAll().catch(console.error);
+  if (bot.armorManager && bot.armorManager.equipAll) {
+    bot.armorManager.equipAll().catch(console.error);
   } else {
     console.log('[Bot] Armor plugin not loaded properly!');
   }
@@ -102,9 +101,10 @@ bot.on('autoeat_started', () => {
   console.log('[Bot] Eating...');
 });
 
-// Sleep at night if bed found
+// 🛌 Sleep at night
 function sleepIfNight() {
-  if (!bot.time.isNight()) return;
+  const time = bot.time.timeOfDay;
+  if (time < 13000 || time > 23000) return; // ✅ Real night check
 
   const bed = bot.findBlock({
     matching: block => bot.isABed(block),
@@ -125,7 +125,7 @@ function sleepIfNight() {
 }
 setInterval(sleepIfNight, 10000);
 
-// Login/Register auto
+// 🔐 Auto-login/register
 bot.on('message', msg => {
   if (alreadyLoggedIn) return;
 
@@ -139,7 +139,7 @@ bot.on('message', msg => {
   }
 });
 
-// Respawn handling
+// ☠️ Respawn
 bot.on('death', () => {
   console.log('[Bot] I died...');
 });
@@ -155,6 +155,7 @@ bot.on('respawn', () => {
   }, 2000);
 });
 
+// 🩹 Stop fighting on low health
 bot.on('health', () => {
   if (bot.health < config.healthThreshold) {
     bot.pvp.stop();
