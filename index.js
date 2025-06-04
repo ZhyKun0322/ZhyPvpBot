@@ -9,7 +9,7 @@ const config = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
 let alreadyLoggedIn = false;
 let enemy = null;
 let respawnPos = null;
-let armor; // armor manager instance
+let armor;
 
 const bot = mineflayer.createBot({
   host: config.host,
@@ -18,16 +18,14 @@ const bot = mineflayer.createBot({
   version: config.version
 });
 
-// Load plugins
 bot.loadPlugin(pathfinder);
 bot.loadPlugin(autoeat);
 bot.loadPlugin(pvp);
 
-// On bot spawn
 bot.once('spawn', () => {
   console.log('[Bot] Spawned in the world');
 
-  armor = armorManager(bot); // initialize armor manager here
+  armor = armorManager(bot); // Correct use
 
   const defaultMove = new Movements(bot);
   bot.pathfinder.setMovements(defaultMove);
@@ -44,7 +42,7 @@ bot.once('spawn', () => {
   }, config.wanderInterval);
 });
 
-// Equip armor and weapons
+// ✅ Corrected armor equipping
 function equipArmorAndWeapons() {
   const sword = bot.inventory.items().find(item => item.name.includes('sword'));
   const shield = bot.inventory.items().find(item => item.name.includes('shield'));
@@ -55,10 +53,9 @@ function equipArmorAndWeapons() {
   if (shield) bot.equip(shield, 'off-hand').catch(console.error);
   if (bow && arrows) bot.equip(bow, 'hand').catch(console.error);
 
-  if (armor) armor.equipAll().catch(console.error);
+  if (armor && armor.equipAll) armor.equipAll().catch(console.error);
 }
 
-// Detect nearby player being hurt
 bot.on('entityHurt', (entity) => {
   if (entity.type === 'player' && entity.position.distanceTo(bot.entity.position) < 6) {
     enemy = entity;
@@ -66,7 +63,6 @@ bot.on('entityHurt', (entity) => {
   }
 });
 
-// PvP logic
 function fightEnemy() {
   if (!enemy || !enemy.isValid) return;
 
@@ -90,7 +86,6 @@ function fightEnemy() {
   }, 1000);
 }
 
-// Use potion if available
 function usePotion() {
   const potion = bot.inventory.items().find(item => item.name.includes('potion'));
   if (potion) {
@@ -100,30 +95,28 @@ function usePotion() {
   }
 }
 
-// Sleep logic
-function sleepIfNight() {
-  if (!bot.time || !bot.time.day || bot.time.day > 12000) {
-    const bed = bot.findBlock({
-      matching: block => bot.isABed(block),
-      maxDistance: 16
+// 💤 Updated sleep logic with `physicsTick`
+bot.on('physicsTick', () => {
+  if (!bot.time?.isNight()) return;
+
+  const bed = bot.findBlock({
+    matching: block => bot.isABed(block),
+    maxDistance: 16
+  });
+
+  if (bed) {
+    bot.pathfinder.setGoal(new goals.GoalBlock(bed.position.x, bed.position.y, bed.position.z));
+    bot.once('goal_reached', async () => {
+      try {
+        await bot.sleep(bed);
+        console.log('[Bot] Sleeping...');
+      } catch (err) {
+        console.log('[Bot] Sleep failed:', err.message);
+      }
     });
-
-    if (bed) {
-      bot.pathfinder.setGoal(new goals.GoalBlock(bed.position.x, bed.position.y, bed.position.z));
-      bot.once('goal_reached', async () => {
-        try {
-          await bot.sleep(bed);
-          console.log('[Bot] Sleeping...');
-        } catch (err) {
-          console.log('[Bot] Sleep failed:', err.message);
-        }
-      });
-    }
   }
-}
-setInterval(sleepIfNight, 10000);
+});
 
-// Auto login/register
 bot.on('message', msg => {
   if (alreadyLoggedIn) return;
 
@@ -137,7 +130,6 @@ bot.on('message', msg => {
   }
 });
 
-// Handle respawn
 bot.on('death', () => {
   console.log('[Bot] I died...');
 });
@@ -153,14 +145,12 @@ bot.on('respawn', () => {
   }, 2000);
 });
 
-// Stop PvP if health low
 bot.on('health', () => {
   if (bot.health < config.healthThreshold) {
     bot.pvp.stop();
   }
 });
 
-// Log autoeat start
 bot.on('autoeat_started', () => {
   console.log('[Bot] Eating...');
 });
