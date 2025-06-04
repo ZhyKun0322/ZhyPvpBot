@@ -3,6 +3,7 @@
   "host": "KingdomOfYggdrasil.aternos.me",
   "port": 52364,
   "version": "1.19.2",
+  "password": "ZhyPvp22",
   "healthThreshold": 10,
   "wanderInterval": 5000
 }
