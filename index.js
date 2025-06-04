@@ -10,9 +10,7 @@ const config = require('./config.json');
 let bot, mcData, defaultMove;
 let sleeping = false;
 let isRunning = true;
-let isEating = false;
 let alreadyLoggedIn = false;
-let target = null;
 
 function log(msg) {
   const time = new Date().toISOString();
@@ -36,10 +34,8 @@ function createBot() {
   bot.once('spawn', async () => {
     log('Bot has spawned in the world.');
 
-    // Load mcData FIRST
     mcData = require('minecraft-data')(bot.version);
 
-    // Load plugins AFTER mcData
     bot.loadPlugin(pathfinder);
     bot.loadPlugin(autoEat);
     bot.loadPlugin(pvp);
@@ -53,12 +49,11 @@ function createBot() {
     bot.autoEat.options.bannedFood = [];
 
     bot.on('chat', onChat);
+    bot.on('entityHurt', onEntityHurt);
     bot.on('physicsTick', () => {
       equipArmorAndWeapons();
       usePotionIfLow();
     });
-
-    bot.on('entityHurt', onEntityHurt);
 
     runLoop();
   });
@@ -86,18 +81,22 @@ function createBot() {
 
 function onChat(username, message) {
   if (username === bot.username) return;
+
   if (message === '!stop') {
     isRunning = false;
     bot.chat("Bot paused.");
   }
+
   if (message === '!start') {
     isRunning = true;
     bot.chat("Bot resumed.");
   }
+
   if (message === '!sleep') {
     bot.chat("Trying to sleep...");
     sleepRoutine();
   }
+
   if (message === '!wander') {
     bot.chat("Wandering...");
     randomWander();
@@ -114,8 +113,7 @@ function onEntityHurt(victim) {
   );
 
   if (attacker) {
-    target = attacker;
-    bot.pvp.attack(target);
+    bot.pvp.attack(attacker);
     log(`Attacked by: ${attacker.username} – Counterattacking.`);
   }
 }
@@ -123,12 +121,16 @@ function onEntityHurt(victim) {
 function equipArmorAndWeapons() {
   bot.inventory.items().forEach(item => {
     const name = mcData.items[item.type].name;
-    if (name.includes('helmet')) bot.armorManager.equip(item, 'head');
-    else if (name.includes('chestplate')) bot.armorManager.equip(item, 'torso');
-    else if (name.includes('leggings')) bot.armorManager.equip(item, 'legs');
-    else if (name.includes('boots')) bot.armorManager.equip(item, 'feet');
-    else if (name.includes('sword')) bot.equip(item, 'hand');
-    else if (name.includes('shield')) bot.equip(item, 'off-hand');
+    try {
+      if (name.includes('helmet')) bot.armorManager.equip(item, 'head');
+      else if (name.includes('chestplate')) bot.armorManager.equip(item, 'torso');
+      else if (name.includes('leggings')) bot.armorManager.equip(item, 'legs');
+      else if (name.includes('boots')) bot.armorManager.equip(item, 'feet');
+      else if (name.includes('sword')) bot.equip(item, 'hand');
+      else if (name.includes('shield')) bot.equip(item, 'off-hand');
+    } catch (e) {
+      log(`Equip error: ${e.message}`);
+    }
   });
 }
 
@@ -209,7 +211,7 @@ async function goTo(pos) {
 }
 
 function delay(ms) {
-  return new Promise(r => setTimeout(r, ms));
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 createBot();
