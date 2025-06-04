@@ -1,11 +1,8 @@
 {
+  "username": "ZhyPvpBot",
   "host": "KingdomOfYggdrasil.aternos.me",
   "port": 52364,
-  "username": "ZhyPvp",
-  "wanderRadius": 10,
-  "wanderIntervalSec": 15,
-  "sleepAtNight": true,
-  "maxFleeHealthPercent": 0.3,
-  "returnFightHealthPercent": 0.7,
-  "respawnDelayMs": 5000
+  "version": "1.19.2",
+  "healthThreshold": 10,
+  "wanderInterval": 5000
 }
