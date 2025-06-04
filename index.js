@@ -10,7 +10,6 @@ const config = require('./config.json');
 let bot, mcData, defaultMove;
 let sleeping = false;
 let isRunning = true;
-let isEating = false;
 let alreadyLoggedIn = false;
 let target = null;
 
@@ -35,8 +34,8 @@ function createBot() {
 
   bot.once('spawn', () => {
     log('Bot has spawned in the world.');
-    mcData = require('minecraft-data')(bot.version);
 
+    mcData = require('minecraft-data')(bot.version); // ✅ Set mcData before loading plugins
     bot.loadPlugin(pathfinder);
     bot.loadPlugin(autoEat);
     bot.loadPlugin(pvp);
