@@ -1,11 +1,13 @@
 const mineflayer = require('mineflayer');
-const { pathfinder, Movements, goals: { GoalNear } } = require('mineflayer-pathfinder');
 const autoEat = require('mineflayer-auto-eat');
 const pvp = require('mineflayer-pvp').plugin;
 const armorManager = require('mineflayer-armor-manager');
 const Vec3 = require('vec3');
 const fs = require('fs');
 const config = require('./config.json');
+
+const { Movements, goals: { GoalNear } } = require('mineflayer-pathfinder');
+const mcDataLoader = require('minecraft-data');
 
 let bot, mcData, defaultMove;
 let sleeping = false;
@@ -36,11 +38,14 @@ function createBot() {
   bot.once('spawn', async () => {
     log('Bot has spawned in the world.');
 
-    // Load mcData FIRST
-    mcData = require('minecraft-data')(bot.version);
+    // Fix: Set mcData before loading pathfinder plugin
+    bot.loadPlugin((bot) => {
+      mcData = mcDataLoader(bot.version);
+      const pathfinder = require('mineflayer-pathfinder');
+      pathfinder(bot, { version: bot.version, mcData });
+    });
 
-    // Load plugins AFTER mcData
-    bot.loadPlugin(pathfinder);
+    // Load other plugins
     bot.loadPlugin(autoEat);
     bot.loadPlugin(pvp);
     bot.loadPlugin(armorManager);
