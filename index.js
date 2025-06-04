@@ -9,7 +9,6 @@ const config = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
 let alreadyLoggedIn = false;
 let enemy = null;
 let respawnPos = null;
-let armor;
 
 const bot = mineflayer.createBot({
   host: config.host,
@@ -18,19 +17,20 @@ const bot = mineflayer.createBot({
   version: config.version
 });
 
-// Load plugins
+// Load all plugins before spawn!
 bot.loadPlugin(pathfinder);
 bot.loadPlugin(autoeat);
+bot.loadPlugin(armorManager);  // <-- Armor manager plugin properly loaded here
 bot.loadPlugin(pvp);
-bot.loadPlugin(armorManager); // Load armor manager plugin properly
 
-// On bot spawn
+// Once bot has spawned in the realm
 bot.once('spawn', () => {
   console.log('[Bot] Spawned in the world');
 
   const defaultMove = new Movements(bot);
   bot.pathfinder.setMovements(defaultMove);
   respawnPos = bot.entity.position.clone();
+
   equipArmorAndWeapons();
 
   setInterval(() => {
@@ -43,7 +43,7 @@ bot.once('spawn', () => {
   }, config.wanderInterval);
 });
 
-// Equip armor and weapons
+// Equip armor and weapons correctly
 function equipArmorAndWeapons() {
   const sword = bot.inventory.items().find(item => item.name.includes('sword'));
   const shield = bot.inventory.items().find(item => item.name.includes('shield'));
@@ -57,7 +57,7 @@ function equipArmorAndWeapons() {
   if (bot.armorManager) {
     bot.armorManager.equipAll().catch(console.error);
   } else {
-    console.warn('[Bot] Armor manager plugin not loaded!');
+    console.error('[Bot] armorManager plugin not loaded!');
   }
 }
 
@@ -103,17 +103,21 @@ function usePotion() {
   }
 }
 
-// Sleep logic using correct night check and physicsTick
+// Sleep logic using the divine physicsTick event and corrected night detection
 bot.on('physicsTick', () => {
-  const time = bot.time?.time;
-  if (!time || time < 12000 || time > 23999) return;
+  // Mineflayer does not have bot.time.isNight(), use bot.time.day to check night
+  // Night in Minecraft is roughly between 13000 and 23000 ticks
+  if (!bot.time) return;
+
+  const time = bot.time.day % 24000;
+  if (time < 13000 || time > 23000) return; // Not night, do nothing
 
   const bed = bot.findBlock({
     matching: block => bot.isABed(block),
     maxDistance: 16
   });
 
-  if (bed) {
+  if (bed && !bot.isSleeping) {
     bot.pathfinder.setGoal(new goals.GoalBlock(bed.position.x, bed.position.y, bed.position.z));
     bot.once('goal_reached', async () => {
       try {
@@ -126,7 +130,7 @@ bot.on('physicsTick', () => {
   }
 });
 
-// Auto login/register
+// Auto login/register from server messages
 bot.on('message', msg => {
   if (alreadyLoggedIn) return;
 
@@ -140,7 +144,7 @@ bot.on('message', msg => {
   }
 });
 
-// Handle respawn
+// Handle death and respawn
 bot.on('death', () => {
   console.log('[Bot] I died...');
 });
