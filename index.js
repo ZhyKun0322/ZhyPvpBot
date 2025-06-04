@@ -52,7 +52,11 @@ function equipArmorAndWeapons() {
   if (shield) bot.equip(shield, 'off-hand').catch(console.error);
   if (bow && arrows) bot.equip(bow, 'hand').catch(console.error);
 
-  bot.armorManager.equipAll().catch(console.error);
+  if (bot.armor) {
+    bot.armor.equipAll().catch(console.error);
+  } else {
+    console.log('[Bot] Armor plugin not loaded properly!');
+  }
 }
 
 bot.on('entityHurt', (entity) => {
