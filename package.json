@@ -1,12 +1,12 @@
 {
-  "name": "ZhyPvl",
+  "name": "zhypvpbot",
   "version": "1.0.0",
-  "description": "A Mineflayer bot for PvP and auto-eating.",
+  "description": "PvP Practice Bot for Minecraft",
   "main": "index.js",
+  "type": "commonjs",
   "scripts": {
     "start": "node index.js"
   },
-{
   "dependencies": {
     "mineflayer": "^4.4.0",
     "mineflayer-auto-eat": "^3.2.0",
