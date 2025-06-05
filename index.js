@@ -51,9 +51,8 @@ function createBot() {
   });
 
   bot.on('message', msg => {
-    const text = msg.toString().toLowerCase();
-    log(`Server Message: ${text}`);
     if (alreadyLoggedIn) return;
+    const text = msg.toString().toLowerCase();
     if (text.includes('register')) {
       bot.chat(`/register ${config.password} ${config.password}`);
       alreadyLoggedIn = true;
