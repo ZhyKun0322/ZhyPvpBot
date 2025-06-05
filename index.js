@@ -1,16 +1,18 @@
 const mineflayer = require('mineflayer');
 const { pathfinder, Movements, goals: { GoalNear } } = require('mineflayer-pathfinder');
+const pvp = require('mineflayer-pvp').plugin;
 const Vec3 = require('vec3');
 const mcDataLoader = require('minecraft-data');
 const fs = require('fs');
 const config = require('./config.json');
-const pvp = require('mineflayer-pvp').plugin;
 
 let bot, mcData, defaultMove;
 let sleeping = false;
 let isRunning = true;
 let isEating = false;
 let alreadyLoggedIn = false;
+let pvpEnabled = false;
+let armorEquipped = false;
 
 function log(msg) {
   const time = new Date().toISOString();
@@ -32,9 +34,7 @@ function createBot() {
   bot.loadPlugin(pathfinder);
   bot.loadPlugin(pvp);
 
-  bot.once('login', () => {
-    log('Bot logged in to the server.');
-  });
+  bot.once('login', () => log('Bot logged in to the server.'));
 
   bot.once('spawn', () => {
     log('Bot has spawned in the world.');
@@ -86,14 +86,17 @@ function onChat(username, message) {
     isRunning = false;
     bot.chat("Bot paused.");
   }
+
   if (message === '!start') {
     isRunning = true;
     bot.chat("Bot resumed.");
   }
+
   if (message === '!roam') {
     bot.chat("Wandering around...");
     wanderRoutine();
   }
+
   if (message === '!come') {
     const player = bot.players[username]?.entity;
     if (player) {
@@ -104,34 +107,39 @@ function onChat(username, message) {
     }
   }
 
-  if (message === '!pvp') {
-    const target = bot.players[username]?.entity;
-    if (!target) return bot.chat("Can't find you!");
-    const sword = bot.inventory.items().find(item => mcData.items[item.type].name.includes('sword'));
-    if (sword) {
-      bot.equip(sword, 'hand').then(() => {
-        bot.chat('Equipped sword! Attacking...');
-        bot.pvp.attack(target);
-      }).catch(err => {
-        bot.chat("Failed to equip sword.");
-        log(err.message);
-      });
-    } else {
-      bot.chat('No sword found in inventory.');
-    }
-  }
-
-  if (message === '!pvpstop') {
-    bot.pvp.stop();
-    bot.chat("PvP stopped.");
-  }
-
   if (message === '!armor') {
-    wearArmor();
+    equipArmor();
   }
 
   if (message === '!removearmor') {
     removeArmor();
+  }
+
+  if (message === '!pvp') {
+    const player = bot.players[username]?.entity;
+    if (player) {
+      const sword = bot.inventory.items().find(item => item.name.includes('sword'));
+      if (sword) {
+        bot.equip(sword, 'hand').then(() => {
+          log(`Equipped sword: ${sword.name}`);
+        }).catch(e => {
+          log(`Error equipping sword: ${e.message}`);
+        });
+      }
+      pvpEnabled = true;
+      bot.pvp.attack(player);
+      bot.chat("PvP started.");
+      log(`Started PvP against ${username}`);
+    } else {
+      bot.chat("Can't find you!");
+    }
+  }
+
+  if (message === '!pvpstop') {
+    pvpEnabled = false;
+    bot.pvp.stop();
+    bot.chat("PvP stopped.");
+    log("PvP stopped.");
   }
 }
 
@@ -155,13 +163,12 @@ function eatIfHungry() {
 
 async function runLoop() {
   while (true) {
-    if (!isRunning || sleeping) {
+    if (!isRunning || sleeping || pvpEnabled) {
       await delay(3000);
       continue;
     }
 
     const dayTime = bot.time.dayTime;
-
     if (dayTime >= 13000 && dayTime <= 23458) {
       await sleepRoutine();
     } else {
@@ -197,6 +204,7 @@ async function sleepRoutine() {
       bot.chat("Woke up!");
       log('Woke up from sleep.');
     });
+
   } catch (e) {
     log(`Sleep failed: ${e.message}`);
     bot.chat(`Sleep failed: ${e.message}`);
@@ -206,7 +214,7 @@ async function sleepRoutine() {
 async function wanderRoutine() {
   log('Wandering randomly...');
   for (let i = 0; i < 5; i++) {
-    if (sleeping) return;
+    if (sleeping || pvpEnabled) return;
 
     const dx = Math.floor(Math.random() * 11) - 5;
     const dz = Math.floor(Math.random() * 11) - 5;
@@ -233,35 +241,47 @@ async function goTo(pos) {
   }
 }
 
-function delay(ms) {
-  return new Promise(r => setTimeout(r, ms));
-}
+async function equipArmor() {
+  if (armorEquipped) return;
+  const armorItems = bot.inventory.items().filter(item =>
+    item.name.includes('helmet') ||
+    item.name.includes('chestplate') ||
+    item.name.includes('leggings') ||
+    item.name.includes('boots')
+  );
 
-function wearArmor() {
-  const armorSlots = ['head', 'torso', 'legs', 'feet'];
-  const armorTypes = ['helmet', 'chestplate', 'leggings', 'boots'];
-
-  for (let i = 0; i < armorSlots.length; i++) {
-    const slot = armorSlots[i];
-    const type = armorTypes[i];
-    const armor = bot.inventory.items().find(item => mcData.items[item.type].name.includes(type));
-    if (armor) {
-      bot.equip(armor, slot).then(() => {
-        log(`Equipped ${type}`);
-      }).catch(err => {
-        log(`Failed to equip ${type}: ${err.message}`);
-      });
+  for (const item of armorItems) {
+    try {
+      await bot.equip(item, 'torso');
+    } catch (e) {
+      log(`Failed to equip ${item.name}: ${e.message}`);
     }
   }
-  bot.chat('Equipping armor.');
+
+  armorEquipped = true;
+  bot.chat("Armor equipped.");
+  log("Equipped armor.");
 }
 
-function removeArmor() {
+async function removeArmor() {
+  if (!armorEquipped) return;
   const armorSlots = ['head', 'torso', 'legs', 'feet'];
+
   for (const slot of armorSlots) {
-    bot.unequip(slot).catch(err => log(`Error removing ${slot}: ${err.message}`));
+    try {
+      await bot.unequip(slot);
+    } catch (e) {
+      log(`Failed to remove armor from ${slot}: ${e.message}`);
+    }
   }
-  bot.chat('Removed all armor.');
+
+  armorEquipped = false;
+  bot.chat("Armor removed.");
+  log("Removed armor.");
+}
+
+function delay(ms) {
+  return new Promise(r => setTimeout(r, ms));
 }
 
 createBot();
