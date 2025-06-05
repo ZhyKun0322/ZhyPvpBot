@@ -1,9 +1,8 @@
 {
-  "username": "ZhyPvpBot",
   "host": "KingdomOfYggdrasil.aternos.me",
   "port": 52364,
+  "username": "ZhyPvpBot",
   "version": "1.19.2",
-  "password": "ZhyPvp22",
-  "healthThreshold": 10,
-  "wanderInterval": 5000
+  "password": "ZhyBot22",
+  "searchRange": 100
 }
