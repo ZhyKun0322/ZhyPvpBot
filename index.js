@@ -50,14 +50,16 @@ function createBot() {
     runLoop();
   });
 
-  bot.on('message', msg => {
+  bot.on('chat', (username, message) => {
     if (alreadyLoggedIn) return;
-    const text = msg.toString().toLowerCase();
-    if (text.includes('register')) {
+    const msg = message.toLowerCase();
+    if (msg.includes('register')) {
       bot.chat(`/register ${config.password} ${config.password}`);
+      log('Sent register command.');
       alreadyLoggedIn = true;
-    } else if (text.includes('login')) {
+    } else if (msg.includes('login')) {
       bot.chat(`/login ${config.password}`);
+      log('Sent login command.');
       alreadyLoggedIn = true;
     }
   });
