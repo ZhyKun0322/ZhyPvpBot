@@ -83,8 +83,6 @@ function onChat(username, message) {
     return;
   }
 
-  if (username !== 'ZhyKun') return;
-
   if (message === '!stop') {
     isRunning = false;
     bot.chat("Bot paused.");
@@ -128,13 +126,17 @@ function onChat(username, message) {
         }).catch(e => {
           log(`Error equipping sword: ${e.message}`);
         });
+      } else {
+        log("No sword found in inventory.");
       }
+
       pvpEnabled = true;
       bot.pvp.attack(player);
-      bot.chat("PvP started.");
+      bot.chat(`PvP started with ${username}.`);
       log(`Started PvP against ${username}`);
     } else {
-      bot.chat("Can't find you!");
+      bot.chat(`Can't find ${username}!`);
+      log(`PvP failed: ${username} not found`);
     }
   }
 
