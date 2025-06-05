@@ -50,9 +50,11 @@ function createBot() {
     runLoop();
   });
 
-  bot.on('chat', (username, message) => {
+  // ✅ Fixed: Listen for server registration/login prompts
+  bot.on('message', (jsonMsg) => {
     if (alreadyLoggedIn) return;
-    const msg = message.toLowerCase();
+
+    const msg = jsonMsg.toString().toLowerCase();
     if (msg.includes('register')) {
       bot.chat(`/register ${config.password} ${config.password}`);
       log('Sent register command.');
