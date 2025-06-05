@@ -1,6 +1,6 @@
 const mineflayer = require('mineflayer');
 const { pathfinder, Movements, goals: { GoalNear } } = require('mineflayer-pathfinder');
-const pvp = require('mineflayer-pvp').plugin;
+const { plugin: pvpPlugin, PvP } = require('mineflayer-pvp');
 const Vec3 = require('vec3');
 const mcDataLoader = require('minecraft-data');
 const fs = require('fs');
@@ -32,27 +32,33 @@ function createBot() {
   });
 
   bot.loadPlugin(pathfinder);
-  bot.loadPlugin(pvp);
+  bot.loadPlugin(pvpPlugin);
+
+  // Fix: If bot.pvp does not have .on(), replace it with a new PvP instance
+  if (typeof bot.pvp.on !== 'function') {
+    bot.pvp = new PvP(bot);
+  }
 
   bot.once('login', () => log('Bot logged in to the server.'));
 
   bot.once('spawn', () => {
     log('Bot has spawned in the world.');
+
     mcData = mcDataLoader(bot.version);
     defaultMove = new Movements(bot, mcData);
     defaultMove.allow1by1tallDoors = true;
     defaultMove.canDig = false;
     bot.pathfinder.setMovements(defaultMove);
 
-    // PvP event listeners MUST be here after plugin is loaded & bot spawned:
+    // PvP plugin event listeners
     bot.pvp.on('error', (err) => {
-      log(`PvP plugin error: ${err.message}`);
+      log(`PvP error: ${err.message}`);
       bot.chat(`PvP error: ${err.message}`);
     });
 
     bot.pvp.on('stopped', () => {
-      log('PvP attack stopped');
-      bot.chat('PvP attack stopped');
+      log('PvP attack stopped.');
+      bot.chat('PvP attack stopped.');
     });
 
     bot.on('chat', onChat);
@@ -61,7 +67,7 @@ function createBot() {
     runLoop();
   });
 
-  // Handle register/login prompts from server
+  // Listen for register/login prompts
   bot.on('message', (jsonMsg) => {
     if (alreadyLoggedIn) return;
 
@@ -141,27 +147,27 @@ function onChat(username, message) {
 
   if (message === '!pvp') {
     const player = Object.values(bot.entities).find(e => e.type === 'player' && e.username?.endsWith(username));
-    if (!player) {
+    if (player) {
+      const sword = bot.inventory.items().find(item => item.name.includes('sword'));
+      if (sword) {
+        bot.equip(sword, 'hand').then(() => {
+          log(`Equipped sword: ${sword.name}`);
+        }).catch(e => {
+          log(`Error equipping sword: ${e.message}`);
+        });
+      }
+      pvpEnabled = true;
+      bot.pvp.attack(player);
+      bot.chat("PvP started.");
+      log(`Started PvP against ${username}`);
+    } else {
       bot.chat("Can't find you!");
       const detectedNames = Object.values(bot.entities)
         .filter(e => e.type === 'player' && e.username)
         .map(e => e.username)
         .join(', ');
       log(`Detected players when trying PvP: ${detectedNames || 'None'}`);
-      return;
     }
-
-    // Validate player entity
-    if (!player.isValid || player.isDead) {
-      bot.chat(`Player invalid for attack: valid=${player.isValid} dead=${player.isDead}`);
-      return;
-    }
-
-    pvpEnabled = true;
-    bot.chat(`Starting PvP against ${player.username}...`);
-    log(`Starting PvP against ${player.username}`);
-
-    startPvPAttack(player);
   }
 
   if (message === '!pvpstop') {
@@ -314,48 +320,6 @@ async function removeArmor() {
   armorEquipped = false;
   bot.chat("Armor removed.");
   log("Removed armor.");
-}
-
-async function startPvPAttack(player) {
-  try {
-    const sword = bot.inventory.items().find(i => i.name.includes('sword'));
-    if (!sword) {
-      bot.chat("No sword found!");
-      log('No sword found in inventory for PvP.');
-      return;
-    }
-    await bot.equip(sword, 'hand');
-    log(`Equipped sword: ${sword.name}`);
-
-    // Go near player before attacking
-    await bot.pathfinder.goto(new GoalNear(player.position.x, player.position.y, player.position.z, 2));
-    log(`Moved near player ${player.username}`);
-
-    // Start attack loop manually (20 hits max)
-    let attackCount = 0;
-    const attackInterval = setInterval(() => {
-      if (attackCount >= 20) {
-        clearInterval(attackInterval);
-        bot.chat('Finished attacking.');
-        log('Finished manual attack.');
-        return;
-      }
-      if (player.isValid && !player.isDead) {
-        bot.attack(player, true);
-        attackCount++;
-        log(`Attacking ${player.username} (${attackCount})`);
-      } else {
-        clearInterval(attackInterval);
-        bot.chat('Player invalid or dead, stopping.');
-        log('Player invalid or dead, stopping attack.');
-      }
-    }, 500);
-
-    bot.chat(`Started attacking ${player.username} manually.`);
-  } catch (e) {
-    log(`Error in manual PvP attack: ${e.message}`);
-    bot.chat(`Attack error: ${e.message}`);
-  }
 }
 
 function delay(ms) {
