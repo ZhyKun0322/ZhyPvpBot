@@ -77,6 +77,17 @@ function createBot() {
 function onChat(username, message) {
   if (username === bot.username) return;
 
+  // Debug: Log all detected player usernames on any chat command to help check Bedrock detection
+  if (message.startsWith('!debugentities')) {
+    const names = Object.values(bot.entities)
+      .filter(e => e.type === 'player' && e.username)
+      .map(e => e.username)
+      .join(', ');
+    bot.chat(`Players detected: ${names || 'None'}`);
+    log(`Players detected: ${names || 'None'}`);
+    return;
+  }
+
   if (message === '!sleep') {
     bot.chat("Trying to sleep...");
     sleepRoutine();
@@ -135,6 +146,12 @@ function onChat(username, message) {
       log(`Started PvP against ${username}`);
     } else {
       bot.chat("Can't find you!");
+      // Log all detected player usernames to debug why
+      const detectedNames = Object.values(bot.entities)
+        .filter(e => e.type === 'player' && e.username)
+        .map(e => e.username)
+        .join(', ');
+      log(`Detected players when trying PvP: ${detectedNames || 'None'}`);
     }
   }
 
@@ -244,6 +261,7 @@ async function goTo(pos) {
   }
 }
 
+// FIXED armor slot equip: helmets to head, chestplate to torso, leggings to legs, boots to feet
 async function equipArmor() {
   if (armorEquipped) return;
   const armorItems = bot.inventory.items().filter(item =>
@@ -255,7 +273,14 @@ async function equipArmor() {
 
   for (const item of armorItems) {
     try {
-      await bot.equip(item, 'torso');
+      let slot = 'torso';
+      if (item.name.includes('helmet')) slot = 'head';
+      else if (item.name.includes('chestplate')) slot = 'torso';
+      else if (item.name.includes('leggings')) slot = 'legs';
+      else if (item.name.includes('boots')) slot = 'feet';
+
+      await bot.equip(item, slot);
+      log(`Equipped ${item.name} in ${slot}`);
     } catch (e) {
       log(`Failed to equip ${item.name}: ${e.message}`);
     }
