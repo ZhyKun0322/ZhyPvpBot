@@ -34,17 +34,6 @@ function createBot() {
   bot.loadPlugin(pathfinder);
   bot.loadPlugin(pvp);
 
-  // PvP plugin event listeners for debugging
-  bot.pvp.on('error', (err) => {
-    log(`PvP plugin error: ${err.message}`);
-    bot.chat(`PvP error: ${err.message}`);
-  });
-
-  bot.pvp.on('stopped', () => {
-    log('PvP attack stopped');
-    bot.chat('PvP attack stopped');
-  });
-
   bot.once('login', () => log('Bot logged in to the server.'));
 
   bot.once('spawn', () => {
@@ -54,6 +43,17 @@ function createBot() {
     defaultMove.allow1by1tallDoors = true;
     defaultMove.canDig = false;
     bot.pathfinder.setMovements(defaultMove);
+
+    // PvP event listeners MUST be here after plugin is loaded & bot spawned:
+    bot.pvp.on('error', (err) => {
+      log(`PvP plugin error: ${err.message}`);
+      bot.chat(`PvP error: ${err.message}`);
+    });
+
+    bot.pvp.on('stopped', () => {
+      log('PvP attack stopped');
+      bot.chat('PvP attack stopped');
+    });
 
     bot.on('chat', onChat);
     bot.on('physicsTick', eatIfHungry);
