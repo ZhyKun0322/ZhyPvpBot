@@ -1,6 +1,6 @@
 const mineflayer = require('mineflayer');
 const { pathfinder, Movements, goals: { GoalNear } } = require('mineflayer-pathfinder');
-const { plugin: pvpPlugin, PvP } = require('mineflayer-pvp');
+const pvp = require('mineflayer-pvp').plugin;
 const Vec3 = require('vec3');
 const mcDataLoader = require('minecraft-data');
 const fs = require('fs');
@@ -32,34 +32,16 @@ function createBot() {
   });
 
   bot.loadPlugin(pathfinder);
-  bot.loadPlugin(pvpPlugin);
-
-  // Fix: If bot.pvp does not have .on(), replace it with a new PvP instance
-  if (typeof bot.pvp.on !== 'function') {
-    bot.pvp = new PvP(bot);
-  }
+  bot.loadPlugin(pvp);
 
   bot.once('login', () => log('Bot logged in to the server.'));
-
   bot.once('spawn', () => {
     log('Bot has spawned in the world.');
-
     mcData = mcDataLoader(bot.version);
     defaultMove = new Movements(bot, mcData);
     defaultMove.allow1by1tallDoors = true;
     defaultMove.canDig = false;
     bot.pathfinder.setMovements(defaultMove);
-
-    // PvP plugin event listeners
-    bot.pvp.on('error', (err) => {
-      log(`PvP error: ${err.message}`);
-      bot.chat(`PvP error: ${err.message}`);
-    });
-
-    bot.pvp.on('stopped', () => {
-      log('PvP attack stopped.');
-      bot.chat('PvP attack stopped.');
-    });
 
     bot.on('chat', onChat);
     bot.on('physicsTick', eatIfHungry);
@@ -67,10 +49,8 @@ function createBot() {
     runLoop();
   });
 
-  // Listen for register/login prompts
   bot.on('message', (jsonMsg) => {
     if (alreadyLoggedIn) return;
-
     const msg = jsonMsg.toString().toLowerCase();
     if (msg.includes('register')) {
       bot.chat(`/register ${config.password} ${config.password}`);
@@ -104,12 +84,48 @@ function onChat(username, message) {
     return;
   }
 
+  // ✅ Allow these commands for everyone
   if (message === '!sleep') {
     bot.chat("Trying to sleep...");
     sleepRoutine();
     return;
   }
 
+  if (message === '!pvp') {
+    const player = Object.values(bot.entities).find(e => e.type === 'player' && e.username === username);
+    if (player) {
+      const sword = bot.inventory.items().find(item => item.name.includes('sword'));
+      if (sword) {
+        bot.equip(sword, 'hand').then(() => {
+          log(`Equipped sword: ${sword.name}`);
+        }).catch(e => {
+          log(`Error equipping sword: ${e.message}`);
+        });
+      }
+      pvpEnabled = true;
+      bot.pvp.attack(player);
+      bot.chat(`PvP started against ${username}.`);
+      log(`Started PvP against ${username}`);
+    } else {
+      bot.chat("Can't find you!");
+      const detectedNames = Object.values(bot.entities)
+        .filter(e => e.type === 'player' && e.username)
+        .map(e => e.username)
+        .join(', ');
+      log(`Detected players when trying PvP: ${detectedNames || 'None'}`);
+    }
+    return;
+  }
+
+  if (message === '!pvpstop') {
+    pvpEnabled = false;
+    bot.pvp.stop();
+    bot.chat("PvP stopped.");
+    log("PvP stopped.");
+    return;
+  }
+
+  // 🔒 Owner-only commands
   if (username !== 'ZhyKun') return;
 
   if (message === '!stop') {
@@ -128,7 +144,7 @@ function onChat(username, message) {
   }
 
   if (message === '!come') {
-    const player = Object.values(bot.entities).find(e => e.type === 'player' && e.username?.endsWith(username));
+    const player = Object.values(bot.entities).find(e => e.type === 'player' && e.username === username);
     if (player) {
       bot.chat('Coming to you!');
       goTo(player.position);
@@ -143,38 +159,6 @@ function onChat(username, message) {
 
   if (message === '!removearmor') {
     removeArmor();
-  }
-
-  if (message === '!pvp') {
-    const player = Object.values(bot.entities).find(e => e.type === 'player' && e.username?.endsWith(username));
-    if (player) {
-      const sword = bot.inventory.items().find(item => item.name.includes('sword'));
-      if (sword) {
-        bot.equip(sword, 'hand').then(() => {
-          log(`Equipped sword: ${sword.name}`);
-        }).catch(e => {
-          log(`Error equipping sword: ${e.message}`);
-        });
-      }
-      pvpEnabled = true;
-      bot.pvp.attack(player);
-      bot.chat("PvP started.");
-      log(`Started PvP against ${username}`);
-    } else {
-      bot.chat("Can't find you!");
-      const detectedNames = Object.values(bot.entities)
-        .filter(e => e.type === 'player' && e.username)
-        .map(e => e.username)
-        .join(', ');
-      log(`Detected players when trying PvP: ${detectedNames || 'None'}`);
-    }
-  }
-
-  if (message === '!pvpstop') {
-    pvpEnabled = false;
-    bot.pvp.stop();
-    bot.chat("PvP stopped.");
-    log("PvP stopped.");
   }
 }
 
