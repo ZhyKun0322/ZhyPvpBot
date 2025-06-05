@@ -34,6 +34,17 @@ function createBot() {
   bot.loadPlugin(pathfinder);
   bot.loadPlugin(pvp);
 
+  // PvP plugin event listeners for debugging
+  bot.pvp.on('error', (err) => {
+    log(`PvP plugin error: ${err.message}`);
+    bot.chat(`PvP error: ${err.message}`);
+  });
+
+  bot.pvp.on('stopped', () => {
+    log('PvP attack stopped');
+    bot.chat('PvP attack stopped');
+  });
+
   bot.once('login', () => log('Bot logged in to the server.'));
 
   bot.once('spawn', () => {
@@ -50,7 +61,7 @@ function createBot() {
     runLoop();
   });
 
-  // ✅ Fixed: Listen for server registration/login prompts
+  // Handle register/login prompts from server
   bot.on('message', (jsonMsg) => {
     if (alreadyLoggedIn) return;
 
@@ -77,6 +88,16 @@ function createBot() {
 function onChat(username, message) {
   if (username === bot.username) return;
 
+  if (message.startsWith('!debugentities')) {
+    const names = Object.values(bot.entities)
+      .filter(e => e.type === 'player' && e.username)
+      .map(e => e.username)
+      .join(', ');
+    bot.chat(`Players detected: ${names || 'None'}`);
+    log(`Players detected: ${names || 'None'}`);
+    return;
+  }
+
   if (message === '!sleep') {
     bot.chat("Trying to sleep...");
     sleepRoutine();
@@ -101,7 +122,7 @@ function onChat(username, message) {
   }
 
   if (message === '!come') {
-    const player = Object.values(bot.entities).find(e => e.type === 'player' && e.username === username);
+    const player = Object.values(bot.entities).find(e => e.type === 'player' && e.username?.endsWith(username));
     if (player) {
       bot.chat('Coming to you!');
       goTo(player.position);
@@ -119,23 +140,28 @@ function onChat(username, message) {
   }
 
   if (message === '!pvp') {
-    const player = Object.values(bot.entities).find(e => e.type === 'player' && e.username === username);
-    if (player) {
-      const sword = bot.inventory.items().find(item => item.name.includes('sword'));
-      if (sword) {
-        bot.equip(sword, 'hand').then(() => {
-          log(`Equipped sword: ${sword.name}`);
-        }).catch(e => {
-          log(`Error equipping sword: ${e.message}`);
-        });
-      }
-      pvpEnabled = true;
-      bot.pvp.attack(player);
-      bot.chat("PvP started.");
-      log(`Started PvP against ${username}`);
-    } else {
+    const player = Object.values(bot.entities).find(e => e.type === 'player' && e.username?.endsWith(username));
+    if (!player) {
       bot.chat("Can't find you!");
+      const detectedNames = Object.values(bot.entities)
+        .filter(e => e.type === 'player' && e.username)
+        .map(e => e.username)
+        .join(', ');
+      log(`Detected players when trying PvP: ${detectedNames || 'None'}`);
+      return;
     }
+
+    // Validate player entity
+    if (!player.isValid || player.isDead) {
+      bot.chat(`Player invalid for attack: valid=${player.isValid} dead=${player.isDead}`);
+      return;
+    }
+
+    pvpEnabled = true;
+    bot.chat(`Starting PvP against ${player.username}...`);
+    log(`Starting PvP against ${player.username}`);
+
+    startPvPAttack(player);
   }
 
   if (message === '!pvpstop') {
@@ -255,7 +281,14 @@ async function equipArmor() {
 
   for (const item of armorItems) {
     try {
-      await bot.equip(item, 'torso');
+      let slot = 'torso';
+      if (item.name.includes('helmet')) slot = 'head';
+      else if (item.name.includes('chestplate')) slot = 'torso';
+      else if (item.name.includes('leggings')) slot = 'legs';
+      else if (item.name.includes('boots')) slot = 'feet';
+
+      await bot.equip(item, slot);
+      log(`Equipped ${item.name} in ${slot}`);
     } catch (e) {
       log(`Failed to equip ${item.name}: ${e.message}`);
     }
@@ -281,6 +314,48 @@ async function removeArmor() {
   armorEquipped = false;
   bot.chat("Armor removed.");
   log("Removed armor.");
+}
+
+async function startPvPAttack(player) {
+  try {
+    const sword = bot.inventory.items().find(i => i.name.includes('sword'));
+    if (!sword) {
+      bot.chat("No sword found!");
+      log('No sword found in inventory for PvP.');
+      return;
+    }
+    await bot.equip(sword, 'hand');
+    log(`Equipped sword: ${sword.name}`);
+
+    // Go near player before attacking
+    await bot.pathfinder.goto(new GoalNear(player.position.x, player.position.y, player.position.z, 2));
+    log(`Moved near player ${player.username}`);
+
+    // Start attack loop manually (20 hits max)
+    let attackCount = 0;
+    const attackInterval = setInterval(() => {
+      if (attackCount >= 20) {
+        clearInterval(attackInterval);
+        bot.chat('Finished attacking.');
+        log('Finished manual attack.');
+        return;
+      }
+      if (player.isValid && !player.isDead) {
+        bot.attack(player, true);
+        attackCount++;
+        log(`Attacking ${player.username} (${attackCount})`);
+      } else {
+        clearInterval(attackInterval);
+        bot.chat('Player invalid or dead, stopping.');
+        log('Player invalid or dead, stopping attack.');
+      }
+    }, 500);
+
+    bot.chat(`Started attacking ${player.username} manually.`);
+  } catch (e) {
+    log(`Error in manual PvP attack: ${e.message}`);
+    bot.chat(`Attack error: ${e.message}`);
+  }
 }
 
 function delay(ms) {
