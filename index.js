@@ -14,6 +14,9 @@ let alreadyLoggedIn = false;
 let pvpEnabled = false;
 let armorEquipped = false;
 
+let pvpTarget = null;
+let pvpInterval = null;
+
 function log(msg) {
   const time = new Date().toISOString();
   const fullMsg = `[${time}] ${msg}`;
@@ -74,10 +77,67 @@ function createBot() {
   });
 }
 
+async function startPvPAttack(player) {
+  if (!player) {
+    bot.chat("No player to attack!");
+    return;
+  }
+  const sword = bot.inventory.items().find(item => item.name.includes('sword'));
+  if (!sword) {
+    bot.chat("I have no sword to fight with!");
+    log("No sword found in inventory.");
+    return;
+  }
+
+  try {
+    await bot.equip(sword, 'hand');
+    log(`Equipped sword: ${sword.name}`);
+  } catch (e) {
+    log(`Error equipping sword: ${e.message}`);
+  }
+
+  pvpTarget = player;
+  pvpEnabled = true;
+
+  bot.pvp.stop(); // stop any previous PvP if any
+
+  bot.chat(`Starting PvP against ${player.username}...`);
+  log(`Starting PvP against ${player.username}`);
+
+  bot.pvp.attack(pvpTarget);
+
+  // Continuously update the attack target and goal (every 1.5 sec)
+  if (pvpInterval) clearInterval(pvpInterval);
+  pvpInterval = setInterval(() => {
+    if (!pvpEnabled || !pvpTarget) return clearInterval(pvpInterval);
+
+    // If player is gone or invalid, stop PvP
+    if (!bot.entities[pvpTarget.id] || !pvpTarget.isValid) {
+      bot.chat(`Lost target ${pvpTarget.username}, stopping PvP.`);
+      log(`Lost target ${pvpTarget.username}, stopping PvP.`);
+      stopPvP();
+      return;
+    }
+
+    bot.pvp.attack(pvpTarget);
+  }, 1500);
+}
+
+function stopPvP() {
+  pvpEnabled = false;
+  pvpTarget = null;
+  bot.pvp.stop();
+  if (pvpInterval) {
+    clearInterval(pvpInterval);
+    pvpInterval = null;
+  }
+  bot.chat("PvP stopped.");
+  log("PvP stopped.");
+}
+
 function onChat(username, message) {
   if (username === bot.username) return;
 
-  // Debug: Log all detected player usernames on any chat command to help check Bedrock detection
   if (message.startsWith('!debugentities')) {
     const names = Object.values(bot.entities)
       .filter(e => e.type === 'player' && e.username)
@@ -132,18 +192,7 @@ function onChat(username, message) {
   if (message === '!pvp') {
     const player = Object.values(bot.entities).find(e => e.type === 'player' && e.username?.endsWith(username));
     if (player) {
-      const sword = bot.inventory.items().find(item => item.name.includes('sword'));
-      if (sword) {
-        bot.equip(sword, 'hand').then(() => {
-          log(`Equipped sword: ${sword.name}`);
-        }).catch(e => {
-          log(`Error equipping sword: ${e.message}`);
-        });
-      }
-      pvpEnabled = true;
-      bot.pvp.attack(player);
-      bot.chat("PvP started.");
-      log(`Started PvP against ${username}`);
+      startPvPAttack(player).catch(e => log(`PvP start error: ${e.message}`));
     } else {
       bot.chat("Can't find you!");
       // Log all detected player usernames to debug why
@@ -156,10 +205,7 @@ function onChat(username, message) {
   }
 
   if (message === '!pvpstop') {
-    pvpEnabled = false;
-    bot.pvp.stop();
-    bot.chat("PvP stopped.");
-    log("PvP stopped.");
+    stopPvP();
   }
 }
 
