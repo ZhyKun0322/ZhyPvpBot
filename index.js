@@ -83,6 +83,8 @@ function onChat(username, message) {
     return;
   }
 
+  if (username !== 'ZhyKun') return;
+
   if (message === '!stop') {
     isRunning = false;
     bot.chat("Bot paused.");
@@ -99,7 +101,7 @@ function onChat(username, message) {
   }
 
   if (message === '!come') {
-    const player = bot.players[username]?.entity;
+    const player = Object.values(bot.entities).find(e => e.type === 'player' && e.username?.endsWith(username));
     if (player) {
       bot.chat('Coming to you!');
       goTo(player.position);
@@ -117,7 +119,7 @@ function onChat(username, message) {
   }
 
   if (message === '!pvp') {
-    const player = bot.players[username]?.entity;
+    const player = Object.values(bot.entities).find(e => e.type === 'player' && e.username?.endsWith(username));
     if (player) {
       const sword = bot.inventory.items().find(item => item.name.includes('sword'));
       if (sword) {
@@ -126,17 +128,13 @@ function onChat(username, message) {
         }).catch(e => {
           log(`Error equipping sword: ${e.message}`);
         });
-      } else {
-        log("No sword found in inventory.");
       }
-
       pvpEnabled = true;
       bot.pvp.attack(player);
-      bot.chat(`PvP started with ${username}.`);
+      bot.chat("PvP started.");
       log(`Started PvP against ${username}`);
     } else {
-      bot.chat(`Can't find ${username}!`);
-      log(`PvP failed: ${username} not found`);
+      bot.chat("Can't find you!");
     }
   }
 
