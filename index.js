@@ -1,195 +1,267 @@
 const mineflayer = require('mineflayer');
-const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
-const autoeat = require('mineflayer-auto-eat').plugin;
-const armorManager = require('mineflayer-armor-manager');
-const pvp = require('mineflayer-pvp').plugin;
+const { pathfinder, Movements, goals: { GoalNear } } = require('mineflayer-pathfinder');
+const Vec3 = require('vec3');
+const mcDataLoader = require('minecraft-data');
 const fs = require('fs');
+const config = require('./config.json');
+const pvp = require('mineflayer-pvp').plugin;
 
-const config = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
-
+let bot, mcData, defaultMove;
+let sleeping = false;
+let isRunning = true;
+let isEating = false;
 let alreadyLoggedIn = false;
-let enemy = null;
-let respawnPos = null;
 
-// 📦 Create the blessed bot
-const bot = mineflayer.createBot({
-  host: config.host,
-  port: config.port,
-  username: config.username,
-  version: config.version
-});
-
-// 📥 Load plugins
-bot.loadPlugin(pathfinder);
-bot.loadPlugin(autoeat);
-bot.loadPlugin(pvp);
-armorManager(bot);
-
-// ❌ Override broken playerCollect from armor-manager
-bot.on('playerCollect', (collector, collected) => {
-  // Prevent crash from plugin
-  return;
-});
-
-// 🌀 PHYSICSTICK corrected
-bot.on('physicsTick', () => {
-  // Optional: logic to run every tick
-});
-
-// ✨ On spawn
-bot.once('spawn', () => {
-  console.log('[Bot] Spawned in the world');
-  console.log('[Info] Armor manager initialized.');
-
-  const defaultMove = new Movements(bot);
-  bot.pathfinder.setMovements(defaultMove);
-  respawnPos = bot.entity.position.clone();
-
-  equipArmorAndWeapons();
-
-  // Start roaming logic
-  setInterval(() => {
-    if (!enemy && bot.health >= config.healthThreshold) {
-      const x = bot.entity.position.x + (Math.random() - 0.5) * 16;
-      const z = bot.entity.position.z + (Math.random() - 0.5) * 16;
-      const y = bot.entity.position.y;
-      console.log(`[Roaming] Moving to (${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)})`);
-      bot.pathfinder.setGoal(new goals.GoalNear(x, y, z, 1));
-    }
-  }, config.wanderInterval);
-});
-
-// 🛡️ Equip gear
-function equipArmorAndWeapons() {
-  console.log('[Action] Equipping armor and weapons...');
-  const sword = bot.inventory.items().find(item => item.name.includes('sword'));
-  const shield = bot.inventory.items().find(item => item.name.includes('shield'));
-  const bow = bot.inventory.items().find(item => item.name.includes('bow'));
-  const arrows = bot.inventory.items().find(item => item.name.includes('arrow'));
-
-  if (sword) bot.equip(sword, 'hand').catch(console.error);
-  if (shield) bot.equip(shield, 'off-hand').catch(console.error);
-  if (bow && arrows) bot.equip(bow, 'hand').catch(console.error);
-
-  try {
-    bot.armorManager.equipAll();
-    console.log('[Success] Armor equipped!');
-  } catch (err) {
-    console.error('[Error] Equipping armor:', err);
-  }
+function log(msg) {
+  const time = new Date().toISOString();
+  const fullMsg = `[${time}] ${msg}`;
+  console.log(fullMsg);
+  fs.appendFileSync('logs.txt', fullMsg + '\n');
 }
 
-// ⚔️ PvP logic
-bot.on('entityHurt', (entity) => {
-  if (entity.type === 'player' && entity.position.distanceTo(bot.entity.position) < 6) {
-    if (!enemy) {
-      console.log('[Bot] Engaged in PvP');
-      enemy = entity;
-      fightEnemy();
-    }
-  }
-});
-
-function fightEnemy() {
-  if (!enemy || !enemy.isValid) return;
-
-  bot.pvp.attack(enemy);
-
-  const fightInterval = setInterval(() => {
-    if (!enemy || !enemy.isValid || bot.health <= 0) {
-      clearInterval(fightInterval);
-      console.log('[PvP] Fight ended.');
-      enemy = null;
-      return;
-    }
-
-    if (bot.health < config.healthThreshold) {
-      console.log('[Bot] Low health! Retreating...');
-      bot.pvp.stop();
-      bot.pathfinder.setGoal(new goals.GoalNear(respawnPos.x, respawnPos.y, respawnPos.z, 2));
-    } else {
-      usePotion();
-    }
-  }, 1000);
-}
-
-// 🍷 Use potion
-function usePotion() {
-  const potion = bot.inventory.items().find(item => item.name.includes('potion'));
-  if (potion) {
-    bot.equip(potion, 'hand')
-      .then(() => bot.activateItem())
-      .catch(console.error);
-  }
-}
-
-// 🌙 Sleep at night (13000 - 23999)
-function sleepIfNight() {
-  const time = bot.time.timeOfDay;
-  console.log(`[Clock] Time of day: ${time}`);
-
-  if (time < 13000 || time > 23999) return;
-
-  const bed = bot.findBlock({
-    matching: block => bot.isABed(block),
-    maxDistance: 16
+function createBot() {
+  log('Creating bot...');
+  bot = mineflayer.createBot({
+    host: config.host,
+    port: config.port,
+    username: config.username,
+    version: config.version,
+    auth: 'offline'
   });
 
-  if (bed) {
-    console.log('[Sleep] Found bed. Heading there...');
-    bot.pathfinder.setGoal(new goals.GoalBlock(bed.position.x, bed.position.y, bed.position.z));
-    bot.once('goal_reached', async () => {
-      try {
-        await bot.sleep(bed);
-        console.log('[Sleep] Bot is now sleeping...');
-      } catch (err) {
-        console.log('[Sleep] Could not sleep:', err.message);
-      }
-    });
-  } else {
-    console.log('[Sleep] No bed found nearby.');
+  bot.loadPlugin(pathfinder);
+  bot.loadPlugin(pvp);
+
+  bot.once('login', () => {
+    log('Bot logged in to the server.');
+  });
+
+  bot.once('spawn', () => {
+    log('Bot has spawned in the world.');
+    mcData = mcDataLoader(bot.version);
+    defaultMove = new Movements(bot, mcData);
+    defaultMove.allow1by1tallDoors = true;
+    defaultMove.canDig = false;
+    bot.pathfinder.setMovements(defaultMove);
+
+    bot.on('chat', onChat);
+    bot.on('physicsTick', eatIfHungry);
+
+    runLoop();
+  });
+
+  bot.on('message', msg => {
+    const text = msg.toString().toLowerCase();
+    log(`Server Message: ${text}`);
+    if (alreadyLoggedIn) return;
+    if (text.includes('register')) {
+      bot.chat(`/register ${config.password} ${config.password}`);
+      alreadyLoggedIn = true;
+    } else if (text.includes('login')) {
+      bot.chat(`/login ${config.password}`);
+      alreadyLoggedIn = true;
+    }
+  });
+
+  bot.on('kicked', reason => log(`[KICKED] ${reason}`));
+  bot.on('error', err => log(`[ERROR] ${err.message}`));
+  bot.on('end', () => {
+    log('Bot disconnected. Reconnecting in 5 seconds...');
+    setTimeout(createBot, 5000);
+  });
+}
+
+function onChat(username, message) {
+  if (username === bot.username) return;
+
+  if (message === '!sleep') {
+    bot.chat("Trying to sleep...");
+    sleepRoutine();
+    return;
+  }
+
+  if (username !== 'ZhyKun') return;
+
+  if (message === '!stop') {
+    isRunning = false;
+    bot.chat("Bot paused.");
+  }
+  if (message === '!start') {
+    isRunning = true;
+    bot.chat("Bot resumed.");
+  }
+  if (message === '!roam') {
+    bot.chat("Wandering around...");
+    wanderRoutine();
+  }
+  if (message === '!come') {
+    const player = bot.players[username]?.entity;
+    if (player) {
+      bot.chat('Coming to you!');
+      goTo(player.position);
+    } else {
+      bot.chat('Cannot find you!');
+    }
+  }
+
+  if (message === '!pvp') {
+    const target = bot.players[username]?.entity;
+    if (!target) return bot.chat("Can't find you!");
+    const sword = bot.inventory.items().find(item => mcData.items[item.type].name.includes('sword'));
+    if (sword) {
+      bot.equip(sword, 'hand').then(() => {
+        bot.chat('Equipped sword! Attacking...');
+        bot.pvp.attack(target);
+      }).catch(err => {
+        bot.chat("Failed to equip sword.");
+        log(err.message);
+      });
+    } else {
+      bot.chat('No sword found in inventory.');
+    }
+  }
+
+  if (message === '!pvpstop') {
+    bot.pvp.stop();
+    bot.chat("PvP stopped.");
+  }
+
+  if (message === '!armor') {
+    wearArmor();
+  }
+
+  if (message === '!removearmor') {
+    removeArmor();
   }
 }
-setInterval(sleepIfNight, 10000);
 
-// 📝 Auto login/register
-bot.on('message', msg => {
-  if (alreadyLoggedIn) return;
+function eatIfHungry() {
+  if (isEating || bot.food === 20) return;
 
-  const text = msg.toString().toLowerCase();
-  if (text.includes('register')) {
-    bot.chat(`/register ${config.password} ${config.password}`);
-    alreadyLoggedIn = true;
-  } else if (text.includes('login')) {
-    bot.chat(`/login ${config.password}`);
-    alreadyLoggedIn = true;
-  }
-});
+  const foodItem = bot.inventory.items().find(item => {
+    const itemInfo = mcData.items[item.type];
+    return itemInfo && itemInfo.food;
+  });
 
-// ☠️ Death and respawn
-bot.on('death', () => {
-  console.log('[Death] Bot has fallen!');
-});
+  if (!foodItem) return;
 
-bot.on('respawn', () => {
-  console.log('[Respawn] Bot has returned!');
-  setTimeout(() => {
-    equipArmorAndWeapons();
-    bot.chat('I have risen again!');
-    if (respawnPos) {
-      bot.pathfinder.setGoal(new goals.GoalNear(respawnPos.x, respawnPos.y, respawnPos.z, 2));
+  isEating = true;
+  bot.equip(foodItem, 'hand')
+    .then(() => bot.consume())
+    .then(() => log(`Bot ate ${mcData.items[foodItem.type].name}`))
+    .catch(err => log(`Error eating: ${err.message}`))
+    .finally(() => isEating = false);
+}
+
+async function runLoop() {
+  while (true) {
+    if (!isRunning || sleeping) {
+      await delay(3000);
+      continue;
     }
-  }, 2000);
-});
 
-// 🍗 Auto-eating log
-bot.on('autoeat_started', () => {
-  console.log('[Food] Bot is eating...');
-});
+    const dayTime = bot.time.dayTime;
 
-// 🧪 Health check
-bot.on('health', () => {
-  if (bot.health < config.healthThreshold) {
-    bot.pvp.stop();
+    if (dayTime >= 13000 && dayTime <= 23458) {
+      await sleepRoutine();
+    } else {
+      await wanderRoutine();
+    }
+
+    await delay(5000);
   }
-});
+}
+
+async function sleepRoutine() {
+  if (sleeping) return;
+  const bed = bot.findBlock({
+    matching: b => bot.isABed(b),
+    maxDistance: config.searchRange
+  });
+
+  if (!bed) {
+    log('No bed found nearby.');
+    return;
+  }
+
+  log(`Heading to bed at ${bed.position}`);
+  try {
+    await goTo(bed.position);
+    await bot.sleep(bed);
+    sleeping = true;
+    bot.chat("Sleeping now...");
+    log('Sleeping...');
+
+    bot.once('wake', () => {
+      sleeping = false;
+      bot.chat("Woke up!");
+      log('Woke up from sleep.');
+    });
+  } catch (e) {
+    log(`Sleep failed: ${e.message}`);
+    bot.chat(`Sleep failed: ${e.message}`);
+  }
+}
+
+async function wanderRoutine() {
+  log('Wandering randomly...');
+  for (let i = 0; i < 5; i++) {
+    if (sleeping) return;
+
+    const dx = Math.floor(Math.random() * 11) - 5;
+    const dz = Math.floor(Math.random() * 11) - 5;
+    const pos = bot.entity.position.offset(dx, 0, dz);
+
+    const ground = bot.blockAt(pos.offset(0, -1, 0));
+    const block = bot.blockAt(pos);
+
+    if (ground && block && ground.boundingBox === 'block' && block.boundingBox === 'empty') {
+      log(`Moving to ${pos}`);
+      await goTo(pos);
+      await delay(3000);
+    } else {
+      log(`Skipped unreachable position at ${pos}`);
+    }
+  }
+}
+
+async function goTo(pos) {
+  try {
+    await bot.pathfinder.goto(new GoalNear(pos.x, pos.y, pos.z, 1));
+  } catch (e) {
+    log(`Navigation error: ${e.message}`);
+  }
+}
+
+function delay(ms) {
+  return new Promise(r => setTimeout(r, ms));
+}
+
+function wearArmor() {
+  const armorSlots = ['head', 'torso', 'legs', 'feet'];
+  const armorTypes = ['helmet', 'chestplate', 'leggings', 'boots'];
+
+  for (let i = 0; i < armorSlots.length; i++) {
+    const slot = armorSlots[i];
+    const type = armorTypes[i];
+    const armor = bot.inventory.items().find(item => mcData.items[item.type].name.includes(type));
+    if (armor) {
+      bot.equip(armor, slot).then(() => {
+        log(`Equipped ${type}`);
+      }).catch(err => {
+        log(`Failed to equip ${type}: ${err.message}`);
+      });
+    }
+  }
+  bot.chat('Equipping armor.');
+}
+
+function removeArmor() {
+  const armorSlots = ['head', 'torso', 'legs', 'feet'];
+  for (const slot of armorSlots) {
+    bot.unequip(slot).catch(err => log(`Error removing ${slot}: ${err.message}`));
+  }
+  bot.chat('Removed all armor.');
+}
+
+createBot();
