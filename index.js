@@ -94,31 +94,47 @@ function onChat(username, message) {
   }
 
   if (message === '!pvp') {
-    const player = Object.values(bot.entities).find(e => e.type === 'player' && e.username === username);
-    if (player) {
-      const sword = bot.inventory.items().find(item => item.name.includes('sword'));
-      if (sword) {
-        bot.equip(sword, 'hand').then(() => {
-          log(`Equipped sword: ${sword.name}`);
-        }).catch(e => {
-          log(`Error equipping sword: ${e.message}`);
-        });
-      }
-      pvpEnabled = true;
-      bot.pvp.attack(player);
-      bot.chat(`PvP started against ${username}.`);
-      log(`Started PvP against ${username}`);
-    } else {
-      bot.chat("Can't find you!");
-      const detectedNames = Object.values(bot.entities)
-        .filter(e => e.type === 'player' && e.username)
-        .map(e => e.username)
-        .join(', ');
-      log(`Detected players when trying PvP: ${detectedNames || 'None'}`);
-    }
-    return;
-  }
+  const player = Object.values(bot.entities).find(e => e.type === 'player' && e.username === username);
+  if (player) {
+    const sword = bot.inventory.items().find(item => item.name.includes('sword'));
+    const axe = bot.inventory.items().find(item => item.name.includes('axe') && !item.name.includes('pickaxe'));
+    const bow = bot.inventory.items().find(item => item.name.includes('bow'));
 
+    const dist = bot.entity.position.distanceTo(player.position);
+
+    if (dist >= 10 && bow) {
+      bot.equip(bow, 'hand').then(() => {
+        log(`Equipped bow for ranged PvP.`);
+      }).catch(e => log(`Error equipping bow: ${e.message}`));
+    } else if (sword) {
+      bot.equip(sword, 'hand').then(() => {
+        log(`Equipped sword: ${sword.name}`);
+      }).catch(e => log(`Error equipping sword: ${e.message}`));
+    } else if (axe) {
+      bot.equip(axe, 'hand').then(() => {
+        log(`No sword found. Equipped axe: ${axe.name}`);
+      }).catch(e => log(`Error equipping axe: ${e.message}`));
+    } else {
+      bot.chat("No sword or axe found in inventory!");
+      log("PvP canceled: No weapon found.");
+      return;
+    }
+
+    pvpEnabled = true;
+    bot.pvp.attack(player);
+    bot.chat(`PvP started against ${username}.`);
+    log(`Started PvP against ${username}`);
+  } else {
+    bot.chat("Can't find you!");
+    const detectedNames = Object.values(bot.entities)
+      .filter(e => e.type === 'player' && e.username)
+      .map(e => e.username)
+      .join(', ');
+    log(`Detected players when trying PvP: ${detectedNames || 'None'}`);
+  }
+  return;
+  }
+  
   if (message === '!pvpstop') {
     pvpEnabled = false;
     bot.pvp.stop();
