@@ -347,4 +347,58 @@ function delay(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
 
+async function runPatrol() {
+  if (patrolTaskRunning) return;
+  patrolTaskRunning = true;
+
+  while (patrolEnabled) {
+    const time = bot.time.dayTime;
+    if (time < 13000 || time > 23458) {
+      bot.chat("It's daytime. Stopping patrol.");
+      patrolEnabled = false;
+      break;
+    }
+
+    const hostiles = bot.nearestEntity(entity =>
+      entity.type === 'mob' &&
+      ['zombie', 'skeleton', 'spider'].includes(entity.name)
+    );
+
+    const creeper = bot.nearestEntity(e => e.name === 'creeper');
+
+    if (creeper) {
+      const bow = bot.inventory.items().find(i => i.name.includes('bow'));
+      const runAwayPos = bot.entity.position.offset(
+        (bot.entity.position.x - creeper.position.x > 0 ? 15 : -15),
+        0,
+        (bot.entity.position.z - creeper.position.z > 0 ? 15 : -15)
+      );
+
+      bot.chat('Creeper detected! Running and shooting...');
+      await goTo(runAwayPos);
+
+      if (bow) {
+        try {
+          await bot.equip(bow, 'hand');
+          bot.lookAt(creeper.position.offset(0, 1.6, 0));
+          bot.activateItem();
+        } catch (e) {
+          log(`Couldn't shoot creeper: ${e.message}`);
+        }
+      }
+    } else if (hostiles) {
+      bot.chat(`Engaging ${hostiles.name}!`);
+      try {
+        await bot.pvp.attack(hostiles);
+      } catch (e) {
+        log(`PvP error: ${e.message}`);
+      }
+    }
+
+    await delay(3000);
+  }
+
+  patrolTaskRunning = false;
+}
+
 createBot();
