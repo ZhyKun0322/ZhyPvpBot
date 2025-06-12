@@ -197,6 +197,7 @@ function onChat(username, message) {
     bot.chat('Stopped patrolling.');
     return;
   }
+}  
   
 function eatIfHungry() {
   if (isEating || bot.food === 20) return;
