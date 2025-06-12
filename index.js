@@ -13,6 +13,8 @@ let isEating = false;
 let alreadyLoggedIn = false;
 let pvpEnabled = false;
 let armorEquipped = false;
+let patrolEnabled = false;
+let patrolTaskRunning = false;
 
 function log(msg) {
   const time = new Date().toISOString();
@@ -84,7 +86,7 @@ function onChat(username, message) {
     return;
   }
 
-  // ✅ Allow these commands for everyone
+  // ✅ Public commands (available to everyone)
   if (message === '!sleep') {
     bot.chat("Trying to sleep...");
     sleepRoutine();
@@ -125,25 +127,38 @@ function onChat(username, message) {
     return;
   }
 
-  // 🔒 Owner-only commands
+  if (message === '!armor') {
+    equipArmor();
+    return;
+  }
+
+  if (message === '!removearmor') {
+    removeArmor();
+    return;
+  }
+
+  // 🔒 Owner-only commands (ZhyKun only)
   if (username !== 'ZhyKun') return;
 
   if (message === '!stop') {
     isRunning = false;
     bot.chat("Bot paused.");
+    return;
   }
 
   if (message === '!start') {
     isRunning = true;
     bot.chat("Bot resumed.");
+    return;
   }
 
   if (message === '!roam') {
     bot.chat("Wandering around...");
     wanderRoutine();
+    return;
   }
 
-  if (message === '!come') {
+    if (message === '!come') {
     const player = Object.values(bot.entities).find(e => e.type === 'player' && e.username === username);
     if (player) {
       bot.chat('Coming to you!');
@@ -151,17 +166,22 @@ function onChat(username, message) {
     } else {
       bot.chat('Cannot find you!');
     }
+    return;
   }
 
-  if (message === '!armor') {
-    equipArmor();
+  if (message === '!patrol') {
+    patrolEnabled = true;
+    bot.chat('Patrolling for hostile mobs...');
+    runPatrol();
+    return;
   }
 
-  if (message === '!removearmor') {
-    removeArmor();
+  if (message === '!patrolstop') {
+    patrolEnabled = false;
+    bot.chat('Stopped patrolling.');
+    return;
   }
-}
-
+  
 function eatIfHungry() {
   if (isEating || bot.food === 20) return;
 
