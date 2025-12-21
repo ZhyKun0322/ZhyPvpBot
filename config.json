@@ -1,8 +1,8 @@
 {
-  "host": "",
-  "port": 52364,
+  "host": "LonelyServerPH.aternos.me",
+  "port": 42956,
   "username": "ZhyBotPvp",
-  "version": "1.19.2",
+  "version": "1.21",
   "password": "ZhyBotPvp22",
   "searchRange": 100
 }
