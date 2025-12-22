@@ -22,13 +22,13 @@ async function handleChat(bot, username, message, state = {}) {
 
   // ---------------- Public commands ----------------
   if (message === '!sleep') {
-    bot.pathfinder.stop(); // Stop current movement
-    if (!bot.isSleeping) {
-      await sleepRoutine(bot, log);
-    } else {
-      bot.chat("I'm already sleeping 😴");
-    }
-    return;
+  bot.pathfinder.stop(); // stop roaming / movement
+  if (!bot.isSleeping) {
+    await sleepRoutine(bot, log, { searchRange: 16 });
+  } else {
+    bot.chat("I'm already sleeping 😴");
+  }
+  return;
   }
 
   if (message === '!pvp') {
