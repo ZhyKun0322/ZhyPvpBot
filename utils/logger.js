@@ -1,4 +1,3 @@
-// utils/logger.js
 const fs = require('fs');
 
 function log(msg) {
@@ -8,4 +7,4 @@ function log(msg) {
   fs.appendFileSync('logs.txt', fullMsg + '\n');
 }
 
-module.exports = { log };
+module.exports = log; // export function directly
