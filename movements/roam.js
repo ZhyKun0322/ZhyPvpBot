@@ -1,17 +1,6 @@
 // bot/movements/roam.js
-const { Movements, goals: { GoalNear } } = require('mineflayer-pathfinder');
+const { goals: { GoalNear } } = require('mineflayer-pathfinder');
 const Vec3 = require('vec3');
-
-function setupRoamMovements(bot) {
-  const mcData = require('minecraft-data')(bot.version);
-  const roamMove = new Movements(bot, mcData);
-
-  roamMove.canDig = false;          // Never break blocks while roaming
-  roamMove.canSwim = true;          // IMPORTANT: don't soft-lock on water
-  roamMove.allow1by1tallDoors = false;
-
-  return roamMove;
-}
 
 /**
  * Find a standable position at XZ by scanning Y
@@ -35,12 +24,15 @@ function findStandablePos(bot, x, z, baseY) {
 }
 
 async function wanderRoutine(bot, logger, range = 10, steps = 5) {
-  const pathfinder = bot.pathfinder;
-  pathfinder.setMovements(setupRoamMovements(bot));
-
   logger('Starting roam routine...');
 
   for (let i = 0; i < steps; i++) {
+    // 🔴 Global safety exits
+    if (!bot || bot.pvp?.target || bot.isSleeping) {
+      logger('Roam aborted due to state change.');
+      break;
+    }
+
     const base = bot.entity.position.floored();
     const dx = rand(-range, range);
     const dz = rand(-range, range);
@@ -52,20 +44,15 @@ async function wanderRoutine(bot, logger, range = 10, steps = 5) {
       base.y
     );
 
-    if (!targetPos) {
-      logger('No standable position found, skipping...');
-      continue;
-    }
-
-    logger(`Roaming to ${targetPos}`);
+    if (!targetPos) continue;
 
     try {
-      await pathfinder.goto(
+      await bot.pathfinder.goto(
         new GoalNear(targetPos.x, targetPos.y, targetPos.z, 1)
       );
-      await delay(3000);
-    } catch (e) {
-      logger(`Failed to reach ${targetPos}: ${e.message}`);
+      await delay(2000);
+    } catch {
+      // silently skip failed paths
     }
   }
 
