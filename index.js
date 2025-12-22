@@ -157,8 +157,8 @@ function onChat(username, message) {
     return
   }
 
-  // Sleep (owner only)
-  if (isOwner && message === '!sleep') sleepRoutine()
+  // Sleep (public)
+  if (message === '!sleep') sleepRoutine()
 
   // PvP (public for all)
   if (message === '!pvp') {
