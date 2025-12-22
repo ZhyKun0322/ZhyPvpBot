@@ -1,122 +1,91 @@
-// bot/movements/combat.js
 const { GoalNear } = require('mineflayer-pathfinder');
-const { Movements } = require('mineflayer-pathfinder');
+const Vec3 = require('vec3');
 
-let patrolTaskRunning = false;
+let bot, mcData, logger;
 
-function setupCombatMovements(bot) {
-  const mcData = require('minecraft-data')(bot.version);
-  const combatMove = new Movements(bot, mcData);
-
-  combatMove.canDig = false; // never break blocks unless necessary in combat
-  combatMove.canSwim = true; // swimming allowed in combat
-  combatMove.canDive = true;
-
-  return combatMove;
+function init(_bot, _mcData, _logger) {
+  bot = _bot;
+  mcData = _mcData;
+  logger = _logger;
 }
 
-async function attackPlayer(bot, targetPlayer) {
-  if (!targetPlayer) return;
+let pvpEnabled = false;
 
+// ====================== PvP ======================
+async function startPvP(targetPlayer) {
+  if (!targetPlayer) return;
   const sword = bot.inventory.items().find(i => i.name.includes('sword'));
   const axe = bot.inventory.items().find(i => i.name.includes('axe') && !i.name.includes('pickaxe'));
   const bow = bot.inventory.items().find(i => i.name.includes('bow'));
 
-  const distance = bot.entity.position.distanceTo(targetPlayer.position);
+  const dist = bot.entity.position.distanceTo(targetPlayer.position);
 
-  if (distance >= 10 && bow) {
-    await bot.equip(bow, 'hand').catch(e => bot.log && bot.log(`Equip bow error: ${e.message}`));
-    bot.chat(`Ranged attack on ${targetPlayer.username}`);
+  // Equip weapon
+  if (dist >= 10 && bow) {
+    try { await bot.equip(bow, 'hand'); logger('Equipped bow for ranged PvP'); } 
+    catch(e) { logger(`Error equipping bow: ${e.message}`); }
   } else if (sword) {
-    await bot.equip(sword, 'hand').catch(e => bot.log && bot.log(`Equip sword error: ${e.message}`));
+    try { await bot.equip(sword, 'hand'); logger(`Equipped sword: ${sword.name}`); } 
+    catch(e) { logger(`Error equipping sword: ${e.message}`); }
   } else if (axe) {
-    await bot.equip(axe, 'hand').catch(e => bot.log && bot.log(`Equip axe error: ${e.message}`));
+    try { await bot.equip(axe, 'hand'); logger(`No sword found. Equipped axe: ${axe.name}`); } 
+    catch(e) { logger(`Error equipping axe: ${e.message}`); }
   } else {
-    bot.chat("No weapon found! PvP canceled.");
+    bot.chat("No weapon found for PvP!");
+    logger("PvP canceled: No weapon found.");
     return;
   }
 
+  pvpEnabled = true;
   bot.pvp.attack(targetPlayer);
-  bot.chat(`Attacking ${targetPlayer.username}`);
+  bot.chat(`PvP started against ${targetPlayer.username}`);
+  logger(`Started PvP against ${targetPlayer.username}`);
 }
 
-async function runPatrol(bot) {
-  if (patrolTaskRunning) return;
-  patrolTaskRunning = true;
-
-  const mcData = require('minecraft-data')(bot.version);
-  const combatMove = setupCombatMovements(bot);
-  bot.pathfinder.setMovements(combatMove);
-
-  while (bot.patrolEnabled) {
-    const time = bot.time.dayTime;
-    if (time < 13000 || time > 23458) {
-      bot.chat("It's daytime. Stopping patrol.");
-      bot.patrolEnabled = false;
-      break;
-    }
-
-    // Look for nearby hostile mobs
-    const hostiles = bot.nearestEntity(entity =>
-      entity.type === 'mob' &&
-      ['zombie', 'skeleton', 'spider'].includes(entity.name)
-    );
-
-    // Detect creeper separately
-    const creeper = bot.nearestEntity(e => e.name === 'creeper');
-
-    if (creeper) {
-      const bow = bot.inventory.items().find(i => i.name.includes('bow'));
-      const runAwayPos = bot.entity.position.offset(
-        (bot.entity.position.x - creeper.position.x > 0 ? 15 : -15),
-        0,
-        (bot.entity.position.z - creeper.position.z > 0 ? 15 : -15)
-      );
-
-      bot.chat('Creeper detected! Running and shooting...');
-      await goTo(bot, runAwayPos);
-
-      if (bow) {
-        try {
-          await bot.equip(bow, 'hand');
-          bot.lookAt(creeper.position.offset(0, 1.6, 0));
-          bot.activateItem();
-        } catch (e) {
-          bot.log && bot.log(`Couldn't shoot creeper: ${e.message}`);
-        }
-      }
-    } else if (hostiles) {
-      bot.chat(`Engaging ${hostiles.name}!`);
-      try {
-        await bot.pvp.attack(hostiles);
-      } catch (e) {
-        bot.log && bot.log(`PvP error: ${e.message}`);
-      }
-    }
-
-    await delay(3000);
-  }
-
-  patrolTaskRunning = false;
+// Stop PvP
+function stopPvP() {
+  pvpEnabled = false;
+  bot.pvp.stop();
+  bot.chat("PvP stopped.");
+  logger("PvP stopped.");
 }
 
-// Helper navigation function
-async function goTo(bot, pos) {
-  const { pathfinder, goals: { GoalNear } } = bot;
+// ====================== Pathfinding helper ======================
+async function goTo(position) {
+  if (!bot.pathfinder) return;
+
+  // Avoid unreachable blocks
   try {
-    await pathfinder.goto(new GoalNear(pos.x, pos.y, pos.z, 1));
-  } catch (e) {
-    bot.log && bot.log(`Navigation error: ${e.message}`);
+    await bot.pathfinder.goto(new GoalNear(position.x, position.y, position.z, 1));
+  } catch(e) {
+    logger(`Navigation error (skipped unreachable target): ${e.message}`);
   }
 }
 
-// Small delay helper
-function delay(ms) {
-  return new Promise(r => setTimeout(r, ms));
+// ====================== Controlled block breaking ======================
+async function breakBlockIfNecessary(targetBlock) {
+  if (!targetBlock) return;
+
+  // Check if path to block exists
+  const goal = new GoalNear(targetBlock.position.x, targetBlock.position.y, targetBlock.position.z, 1);
+  try {
+    await bot.pathfinder.goto(goal);
+    // Only break if absolutely necessary (combat)
+    await bot.dig(targetBlock);
+    logger(`Destroyed block ${targetBlock.name} to reach target`);
+  } catch(e) {
+    logger(`Skipped block ${targetBlock.name}, unreachable or blocked: ${e.message}`);
+  }
 }
+
+// ====================== Utilities ======================
+function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 module.exports = {
-  attackPlayer,
-  runPatrol,
-  setupCombatMovements
+  init,
+  startPvP,
+  stopPvP,
+  goTo,
+  breakBlockIfNecessary,
+  isPvPEnabled: () => pvpEnabled
 };
