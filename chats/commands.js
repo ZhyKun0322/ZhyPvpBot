@@ -1,14 +1,15 @@
 const { wanderRoutine } = require('../movements/roam');
 const { runPatrol, attackPlayer, stopPvP } = require('../movements/combat');
-const { sleepRoutine } = require('../movements/sleep');
+const sleepRoutine = require('../movements/sleep');
 const { equipArmor, removeArmor } = require('../movements/armor');
 const { eatIfHungry } = require('../movements/eat');
+const { GoalNear } = require('mineflayer-pathfinder');
 const log = require('../utils/logger');
 
-async function handleChat(bot, username, message) {
+async function handleChat(bot, username, message, state = {}) {
   if (username === bot.username) return;
 
-  // Debug command available to everyone
+  // ---------------- Global debug ----------------
   if (message.startsWith('!debugentities')) {
     const names = Object.values(bot.entities)
       .filter(e => e.type === 'player' && e.username)
@@ -21,17 +22,23 @@ async function handleChat(bot, username, message) {
 
   // ---------------- Public commands ----------------
   if (message === '!sleep') {
-    bot.chat("Trying to sleep...");
-    await sleepRoutine(bot);
+    bot.pathfinder.stop(); // Stop current movement
+    if (!bot.isSleeping) {
+      await sleepRoutine(bot, log);
+    } else {
+      bot.chat("I'm already sleeping 😴");
+    }
     return;
   }
 
   if (message === '!pvp') {
+    bot.pvpEnabled = true;
     await attackPlayer(bot, username);
     return;
   }
 
   if (message === '!pvpstop') {
+    bot.pvpEnabled = false;
     stopPvP(bot);
     return;
   }
@@ -50,29 +57,41 @@ async function handleChat(bot, username, message) {
   if (username !== 'ZhyKun') return;
 
   if (message === '!stop') {
-    bot.isRunning = false;
+    state.isRunning = false;
     bot.chat("Bot paused.");
     return;
   }
 
   if (message === '!start') {
-    bot.isRunning = true;
+    state.isRunning = true;
     bot.chat("Bot resumed.");
     return;
   }
 
   if (message === '!roam') {
+    if (bot.isSleeping) {
+      bot.chat("Can't roam, I'm sleeping 😴");
+      return;
+    }
+    if (bot.pvpEnabled) {
+      bot.chat("Can't roam, PvP mode active ⚔️");
+      return;
+    }
     bot.chat("Wandering around...");
-    await wanderRoutine(bot);
+    await wanderRoutine(bot, log);
     return;
   }
 
   if (message === '!come') {
-    const player = Object.values(bot.entities).find(e => e.type === 'player' && e.username === username);
+    const player = Object.values(bot.entities)
+      .find(e => e.type === 'player' && e.username === username);
     if (player) {
       bot.chat('Coming to you!');
-      const { goTo } = require('../movements/roam');
-      await goTo(bot, player.position);
+      try {
+        await bot.pathfinder.goto(new GoalNear(player.position.x, player.position.y, player.position.z, 1));
+      } catch (err) {
+        bot.chat(`Failed to come: ${err.message}`);
+      }
     } else {
       bot.chat('Cannot find you!');
     }
@@ -92,7 +111,6 @@ async function handleChat(bot, username, message) {
   }
 
   if (message === '!drop') {
-    // Drop everything in inventory except empty slots
     for (const item of bot.inventory.items()) {
       try {
         await bot.tossStack(item);
@@ -106,4 +124,4 @@ async function handleChat(bot, username, message) {
   }
 }
 
-module.exports = { handleChat };
+module.exports = handleChat;
