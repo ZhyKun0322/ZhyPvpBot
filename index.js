@@ -52,7 +52,6 @@ function createBot() {
 
   bot.once('spawn', () => {
     log('Bot spawned')
-
     mcData = mcDataLoader(bot.version)
 
     // Custom movements: no digging, no doors, no scaffolding
@@ -203,25 +202,54 @@ async function onChat(username, message) {
     return
   }
 
+  // Equip armor
   if (message === '!armor') {
-    const slots = ['helmet', 'chestplate', 'leggings', 'boots']
+    const slots = ['head', 'torso', 'legs', 'feet']
     let equipped = false
     for (const slot of slots) {
-      const item = bot.inventory.items().find(i => i.name.includes(slot))
-      if (item) {
-        try { await bot.equip(item, slot); equipped = true } catch {}
+      if (!bot.inventory.slots[bot.getEquipmentDestSlot(slot)]) {
+        const item = bot.inventory.items().find(i => {
+          switch(slot) {
+            case 'head': return i.name.includes('helmet')
+            case 'torso': return i.name.includes('chestplate')
+            case 'legs': return i.name.includes('leggings')
+            case 'feet': return i.name.includes('boots')
+          }
+        })
+        if (item) {
+          try {
+            await bot.equip(item, slot)
+            equipped = true
+          } catch(err) { log(err.message) }
+        }
       }
     }
-    bot.chat(equipped ? "Equipped all armor." : "No armor found in inventory.")
+    bot.chat(equipped ? "Equipped all armor." : "No armor found or slots already filled.")
     return
   }
 
+  // Remove armor
   if (message === '!remove') {
-    const slots = ['helmet', 'chestplate', 'leggings', 'boots']
+    const slots = ['head', 'torso', 'legs', 'feet']
     for (const slot of slots) {
-      try { await bot.unequip(slot) } catch {}
+      const item = bot.inventory.slots[bot.getEquipmentDestSlot(slot)]
+      if (item) {
+        try { await bot.unequip(slot) } catch(err) { log(err.message) }
+      }
     }
     bot.chat("Removed all armor.")
+    return
+  }
+
+  // ---------------- Public TPA ----------------
+  if (message.startsWith('!tpa ')) {
+    const args = message.split(' ')
+    if (args.length < 2) {
+      bot.chat('Usage: !tpa <username>')
+      return
+    }
+    const targetName = args[1]
+    bot.chat(`/tpa ${targetName}`)
     return
   }
 }
@@ -250,7 +278,7 @@ async function sleepRoutine() {
   try {
     sleeping = true
     const wasRoaming = roaming
-    roaming = false // pause roaming
+    roaming = false
 
     bot.chat("Going to bed...")
     await goTo(bed.position)
