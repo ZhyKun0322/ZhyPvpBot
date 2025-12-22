@@ -7,13 +7,15 @@ const config = require('./config.json')
 
 let bot, mcData, defaultMove
 let sleeping = false
-let isRunning = true
 let isEating = false
 let alreadyLoggedIn = false
 let pvpEnabled = false
 let followTask = null
+let roaming = true // Auto roam on spawn
+let autoEatEnabled = true
 
-const preferredFoods = ['cooked_beef', 'cooked_chicken', 'bread', 'golden_apple, potato, cooked_potato']
+// Add any foods you want to allow
+const preferredFoods = ['cooked_beef','cooked_chicken','bread','golden_apple','potato','cooked_potato']
 
 function log(msg) {
   const time = new Date().toISOString()
@@ -45,16 +47,14 @@ function createBot() {
 
     mcData = mcDataLoader(bot.version)
     defaultMove = new Movements(bot, mcData)
-
-    defaultMove.allow1by1tallDoors = false
     defaultMove.canDig = false
-
+    defaultMove.allow1by1tallDoors = false
     bot.pathfinder.setMovements(defaultMove)
 
     bot.on('chat', onChat)
-    bot.on('physicsTick', eatIfHungry)
+    bot.on('physicsTick', eatIfHungryLoop)
 
-    runLoop()
+    if (roaming) roamLoop() // auto roam on spawn
   })
 
   bot.on('message', jsonMsg => {
@@ -85,8 +85,55 @@ function createBot() {
 function onChat(username, message) {
   if (username === bot.username) return
 
-  if (message === '!sleep') {
-    sleepRoutine()
+  // Owner-only commands
+  if (username !== 'ZhyKun') return
+
+  if (message === '!roam') {
+    if (!roaming) {
+      roaming = true
+      bot.chat('Starting roam...')
+      roamLoop()
+    }
+    return
+  }
+
+  if (message === '!stoproam') {
+    roaming = false
+    bot.chat('Stopped roaming.')
+    return
+  }
+
+  // Follow commands
+  if (message === '!come') {
+    const target = bot.players[username]?.entity
+    if (!target) {
+      bot.chat("Can't see you!")
+      return
+    }
+
+    if (followTask) followTask.cancel()
+    followTask = followPlayer(target)
+    bot.chat(`Following ${username}`)
+    return
+  }
+
+  if (message === '!stop') {
+    if (followTask) followTask.cancel()
+    followTask = null
+    bot.chat("Stopped following")
+    return
+  }
+
+  // Force eat
+  if (message === '!eat') {
+    eatFood()
+    return
+  }
+
+  // Toggle auto eat
+  if (message === '!autoeat') {
+    autoEatEnabled = !autoEatEnabled
+    bot.chat(`Auto-eat is now ${autoEatEnabled ? 'ON' : 'OFF'}`)
     return
   }
 
@@ -125,62 +172,28 @@ function onChat(username, message) {
     return
   }
 
-  // Owner commands
-  if (username !== 'ZhyKun') return
-
-  if (message === '!roam') wanderRoutine()
-
-  // Follow commands
-  if (message === '!come') {
-    const target = bot.players[username]?.entity
-    if (!target) {
-      bot.chat("Can't see you!")
-      return
-    }
-
-    if (followTask) followTask.cancel()
-    followTask = followPlayer(target)
-    bot.chat(`Following ${username}`)
-    return
-  }
-
-  if (message === '!stop') {
-    if (followTask) followTask.cancel()
-    followTask = null
-    bot.chat("Stopped following")
+  if (message === '!sleep') {
+    sleepRoutine()
     return
   }
 }
 
 // ---------------- Eating ----------------
-function eatIfHungry() {
-  if (isEating || bot.food === 20) return
-
+function eatFood() {
   const food = bot.inventory.items().find(i => preferredFoods.includes(i.name))
   if (!food) return
 
   isEating = true
-  // stop moving before eating
-  bot.clearControlStates()
+  bot.clearControlStates() // stop movement
   bot.equip(food, 'hand')
     .then(() => bot.consume())
     .finally(() => { isEating = false })
 }
 
-// ---------------- Loops ----------------
-async function runLoop() {
-  while (true) {
-    if (!isRunning || sleeping || pvpEnabled) {
-      await delay(3000)
-      continue
-    }
-
-    const t = bot.time.dayTime
-    if (t >= 13000 && t <= 23458) await sleepRoutine()
-    else await wanderRoutine()
-
-    await delay(5000)
-  }
+function eatIfHungryLoop() {
+  if (!autoEatEnabled) return
+  if (bot.food >= 20 || isEating) return
+  eatFood()
 }
 
 // ---------------- Sleep ----------------
@@ -206,11 +219,9 @@ async function sleepRoutine() {
   }
 }
 
-// ---------------- Wander ----------------
-async function wanderRoutine() {
-  for (let i = 0; i < 5; i++) {
-    if (sleeping || pvpEnabled) return
-
+// ---------------- Roaming ----------------
+async function roamLoop() {
+  while (roaming && !sleeping && !pvpEnabled) {
     const pos = bot.entity.position.offset(
       Math.floor(Math.random() * 11) - 5,
       0,
@@ -221,19 +232,15 @@ async function wanderRoutine() {
     const space = bot.blockAt(pos)
 
     if (ground?.boundingBox === 'block' && space?.boundingBox === 'empty') {
-      await goTo(pos)
-      await delay(3000)
+      try {
+        bot.lookAt(pos.offset(0, 1.5, 0))
+        await bot.pathfinder.goto(new GoalNear(pos.x, pos.y, pos.z, 1))
+      } catch {
+        // unreachable, just continue
+      }
     }
+    await delay(3000)
   }
-}
-
-// ---------------- GoTo ----------------
-async function goTo(pos) {
-  try {
-    // Look at the destination while moving
-    bot.lookAt(pos.offset(0, 1.5, 0))
-    await bot.pathfinder.goto(new GoalNear(pos.x, pos.y, pos.z, 1))
-  } catch {}
 }
 
 // ---------------- Follow Routine ----------------
@@ -244,7 +251,10 @@ function followPlayer(target) {
     while (!cancelled) {
       if (!target || !target.position) break
       const pos = target.position.offset(0, 0, 0)
-      await goTo(pos)
+      try {
+        bot.lookAt(pos.offset(0,1.5,0))
+        await bot.pathfinder.goto(new GoalNear(pos.x, pos.y, pos.z, 1))
+      } catch {}
       await delay(1000)
     }
   }
@@ -258,6 +268,7 @@ function followPlayer(target) {
   }
 }
 
+// ---------------- Utility ----------------
 function delay(ms) { return new Promise(r => setTimeout(r, ms)) }
 
 createBot()
