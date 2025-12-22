@@ -1,116 +1,224 @@
-// index.js
-const mineflayer = require('mineflayer');
-const { pathfinder, Movements } = require('mineflayer-pathfinder');
-const pvp = require('mineflayer-pvp').plugin;
-const mcDataLoader = require('minecraft-data');
-const config = require('./config.json');
+const mineflayer = require('mineflayer')
+const { pathfinder, Movements, goals: { GoalNear } } = require('mineflayer-pathfinder')
+const pvp = require('mineflayer-pvp').plugin
+const Vec3 = require('vec3')
+const mcDataLoader = require('minecraft-data')
+const fs = require('fs')
+const config = require('./config.json')
 
-// Modules
-const { wanderRoutine } = require('./movements/roam');
-const { attackPlayer } = require('./movements/combat');
-const { eatIfHungry } = require('./movements/eat');
-const sleepRoutine = require('./movements/sleep');
-const { equipArmor, removeArmor } = require('./movements/armor');
-const handleChat = require('./chats/commands');
-const log = require('./utils/logger');
+let bot, mcData, defaultMove
+let sleeping = false
+let isRunning = true
+let isEating = false
+let alreadyLoggedIn = false
+let pvpEnabled = false
+let armorEquipped = false
+let patrolEnabled = false
+let patrolTaskRunning = false
 
-let bot;
-let mcData;
-let defaultMove;
+function log(msg) {
+  const time = new Date().toISOString()
+  const fullMsg = `[${time}] ${msg}`
+  console.log(fullMsg)
+  fs.appendFileSync('logs.txt', fullMsg + '\n')
+}
 
-function setDefaultFlags(bot) {
-  bot.isSleeping = false;
-  bot.isRunning = true;
-  bot.isEating = false;
-  bot.alreadyLoggedIn = false;
-  bot.pvpEnabled = false;
-  bot.armorEquipped = false;
+// sprint only, no jump
+function setCombatMovement(enabled) {
+  bot.setControlState('sprint', enabled)
+  bot.setControlState('jump', false)
 }
 
 function createBot() {
-  log('Creating bot...');
+  log('Creating bot...')
   bot = mineflayer.createBot({
     host: config.host,
     port: config.port,
     username: config.username,
     version: config.version,
     auth: 'offline'
-  });
+  })
 
-  setDefaultFlags(bot);
+  bot.loadPlugin(pathfinder)
+  bot.loadPlugin(pvp)
 
-  bot.loadPlugin(pathfinder);
-  bot.loadPlugin(pvp);
-
-  bot.once('login', () => log('Bot logged in to the server.'));
   bot.once('spawn', () => {
-    log('Bot has spawned in the world.');
-    mcData = mcDataLoader(bot.version);
-    defaultMove = new Movements(bot, mcData);
+    log('Bot spawned')
 
-    defaultMove.canDig = false;
-    defaultMove.canSwim = false;
-    bot.pathfinder.setMovements(defaultMove);
+    mcData = mcDataLoader(bot.version)
+    defaultMove = new Movements(bot, mcData)
 
-    // Chat commands
-    bot.on('chat', (username, message) =>
-      handleChat(bot, username, message, { defaultMove, log })
-    );
+    // 🚫 NO DOORS
+    defaultMove.allow1by1tallDoors = false
+    // 🚫 NO BLOCK BREAKING
+    defaultMove.canDig = false
 
-    // Eating handler
-    bot.on('physicsTick', () => eatIfHungry(bot, log));
+    bot.pathfinder.setMovements(defaultMove)
 
-    // Start main loop
-    runLoop();
-  });
+    bot.on('chat', onChat)
+    bot.on('physicsTick', eatIfHungry)
 
-  // Auto-register/login
-  bot.on('message', (jsonMsg) => {
-    if (bot.alreadyLoggedIn) return;
-    const msg = jsonMsg.toString().toLowerCase();
+    runLoop()
+  })
+
+  bot.on('message', jsonMsg => {
+    if (alreadyLoggedIn) return
+    const msg = jsonMsg.toString().toLowerCase()
+
     if (msg.includes('register')) {
-      bot.chat(`/register ${config.password} ${config.password}`);
-      log('Sent register command.');
-      bot.alreadyLoggedIn = true;
+      bot.chat(`/register ${config.password} ${config.password}`)
+      alreadyLoggedIn = true
     } else if (msg.includes('login')) {
-      bot.chat(`/login ${config.password}`);
-      log('Sent login command.');
-      bot.alreadyLoggedIn = true;
+      bot.chat(`/login ${config.password}`)
+      alreadyLoggedIn = true
     }
-  });
+  })
 
-  bot.on('kicked', reason => log(`[KICKED] ${reason}`));
-  bot.on('error', err => log(`[ERROR] ${err.message}`));
-  bot.on('end', () => {
-    log('Bot disconnected. Reconnecting in 5 seconds...');
-    setTimeout(createBot, 5000);
-  });
+  bot.on('end', () => setTimeout(createBot, 5000))
+  bot.on('error', err => log(err.message))
+}
+
+function onChat(username, message) {
+  if (username === bot.username) return
+
+  if (message === '!sleep') {
+    sleepRoutine()
+    return
+  }
+
+  // ✅ PvP (crossplay-ready)
+  if (message === '!pvp') {
+    // use endsWith to match Bedrock players
+    const player = Object.values(bot.entities).find(
+      e => e.type === 'player' && e.username.endsWith(username)
+    )
+    if (!player) {
+      bot.chat("Can't find you!")
+      return
+    }
+
+    const weapon =
+      bot.inventory.items().find(i => i.name.includes('sword')) ||
+      bot.inventory.items().find(i => i.name.includes('axe'))
+
+    if (!weapon) {
+      bot.chat("No weapon found!")
+      return
+    }
+
+    bot.equip(weapon, 'hand')
+    pvpEnabled = true
+    setCombatMovement(true)
+    bot.pvp.attack(player)
+    bot.chat(`PvP started against ${player.username}`)
+    return
+  }
+
+  if (message === '!pvpstop') {
+    pvpEnabled = false
+    setCombatMovement(false)
+    bot.pvp.stop()
+    bot.chat("PvP stopped")
+    return
+  }
+
+  // 🔒 Owner commands
+  if (username !== 'ZhyKun') return
+
+  if (message === '!roam') wanderRoutine()
+  if (message === '!patrol') {
+    patrolEnabled = true
+    runPatrol()
+  }
+  if (message === '!patrolstop') patrolEnabled = false
+}
+
+function eatIfHungry() {
+  if (isEating || bot.food === 20) return
+
+  const food = bot.inventory.items().find(i => mcData.items[i.type]?.food)
+  if (!food) return
+
+  isEating = true
+  bot.equip(food, 'hand')
+    .then(() => bot.consume())
+    .finally(() => (isEating = false))
 }
 
 async function runLoop() {
   while (true) {
-    if (!bot.isRunning || bot.isSleeping || bot.pvpEnabled) {
-      await delay(3000);
-      continue;
+    if (!isRunning || sleeping || pvpEnabled) {
+      await delay(3000)
+      continue
     }
 
-    const dayTime = bot.time.dayTime;
-    if (dayTime >= 13000 && dayTime <= 23458) {
-      await sleepRoutine(bot, log, defaultMove, bot.pvpEnabled);
-    } else {
-      await wanderRoutine(bot, log);
-    }
+    const t = bot.time.dayTime
+    if (t >= 13000 && t <= 23458) await sleepRoutine()
+    else await wanderRoutine()
 
-    await delay(5000);
+    await delay(5000)
   }
 }
 
-function delay(ms) {
-  return new Promise(r => setTimeout(r, ms));
+async function sleepRoutine() {
+  if (sleeping) return
+  const bed = bot.findBlock({ matching: b => bot.isABed(b), maxDistance: 16 })
+  if (!bed) return
+
+  await goTo(bed.position)
+  await bot.sleep(bed)
+  sleeping = true
+
+  bot.once('wake', () => (sleeping = false))
 }
 
-// Start the bot
-createBot();
+async function wanderRoutine() {
+  for (let i = 0; i < 5; i++) {
+    if (sleeping || pvpEnabled) return
 
-// Export for other modules
-module.exports = { bot };
+    const pos = bot.entity.position.offset(
+      Math.floor(Math.random() * 11) - 5,
+      0,
+      Math.floor(Math.random() * 11) - 5
+    )
+
+    const ground = bot.blockAt(pos.offset(0, -1, 0))
+    const space = bot.blockAt(pos)
+
+    if (ground?.boundingBox === 'block' && space?.boundingBox === 'empty') {
+      await goTo(pos)
+      await delay(3000)
+    }
+  }
+}
+
+async function goTo(pos) {
+  try {
+    await bot.pathfinder.goto(new GoalNear(pos.x, pos.y, pos.z, 1))
+  } catch {}
+}
+
+function delay(ms) {
+  return new Promise(r => setTimeout(r, ms))
+}
+
+async function runPatrol() {
+  if (patrolTaskRunning) return
+  patrolTaskRunning = true
+
+  while (patrolEnabled) {
+    setCombatMovement(true)
+
+    const hostile = bot.nearestEntity(e =>
+      e.type === 'mob' && ['zombie', 'skeleton', 'spider'].includes(e.name)
+    )
+
+    if (hostile) bot.pvp.attack(hostile)
+    await delay(3000)
+  }
+
+  setCombatMovement(false)
+  patrolTaskRunning = false
+}
+
+createBot()
