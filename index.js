@@ -52,6 +52,7 @@ function createBot() {
 
   bot.once('spawn', () => {
     log('Bot spawned')
+
     mcData = mcDataLoader(bot.version)
 
     // Custom movements: no digging, no doors, no scaffolding
@@ -113,53 +114,76 @@ function createBot() {
 async function onChat(username, message) {
   if (username === bot.username) return
   const isOwner = username === 'ZhyKun'
+  const msg = message.toLowerCase().trim()
 
-  // Roam commands (owner only)
-  if (isOwner && message === '!roam') {
-    if (!roaming) {
-      roaming = true
-      bot.chat('Starting roam...')
-      if (!bot.roamingLoopActive) roamLoop()
-    }
-    return
-  }
-  if (isOwner && message === '!stoproam') {
-    roaming = false
-    bot.chat('Stopped roaming.')
-    return
-  }
-
-  // Follow commands (owner only)
-  if (isOwner && message === '!come') {
-    const target = bot.players[username]?.entity
-    if (!target) {
-      bot.chat("Can't see you!")
+  // ---------------- Owner Commands ----------------
+  if (isOwner) {
+    // Roam
+    if (msg === '!roam') {
+      if (!roaming) {
+        roaming = true
+        bot.chat('Starting roam...')
+        if (!bot.roamingLoopActive) roamLoop()
+      }
       return
     }
-    if (followTask) followTask.cancel()
-    followTask = followPlayer(target)
-    bot.chat(`Following ${username}`)
-    return
-  }
-  if (isOwner && message === '!stop') {
-    if (followTask) followTask.cancel()
-    followTask = null
-    bot.chat("Stopped following")
-    return
+    if (msg === '!stoproam') {
+      roaming = false
+      bot.chat('Stopped roaming.')
+      return
+    }
+
+    // Follow
+    if (msg === '!come') {
+      const target = bot.players[username]?.entity
+      if (!target) {
+        bot.chat("Can't see you!")
+        return
+      }
+      if (followTask) followTask.cancel()
+      followTask = followPlayer(target)
+      bot.chat(`Following ${username}`)
+      return
+    }
+    if (msg === '!stop') {
+      if (followTask) followTask.cancel()
+      followTask = null
+      bot.chat("Stopped following")
+      return
+    }
+
+    // Auto-eat toggle
+    if (msg === '!autoeat') {
+      autoEatEnabled = !autoEatEnabled
+      bot.chat(`Auto-eat is now ${autoEatEnabled ? 'ON' : 'OFF'}`)
+      return
+    }
+
+    // TPA owner-only
+    if (msg.startsWith('!tpa ')) {
+      const args = msg.split(' ')
+      if (args.length < 2) {
+        bot.chat('Usage: !tpa <username>')
+        return
+      }
+      const targetName = args[1]
+      const targetPlayer = Object.values(bot.players).find(
+        p => p.username.toLowerCase().endsWith(targetName.toLowerCase())
+      )
+      if (!targetPlayer) {
+        bot.chat(`Cannot find player "${targetName}"`)
+        return
+      }
+      bot.chat(`/tpa ${targetPlayer.username}`)
+      bot.chat(`Sent TPA request to ${targetPlayer.username}`)
+      return
+    }
   }
 
-  // Auto-eat toggle (owner only)
-  if (isOwner && message === '!autoeat') {
-    autoEatEnabled = !autoEatEnabled
-    bot.chat(`Auto-eat is now ${autoEatEnabled ? 'ON' : 'OFF'}`)
-    return
-  }
+  // ---------------- Public Commands ----------------
+  if (msg === '!sleep') sleepRoutine()
 
-  // Sleep command (public)
-  if (message === '!sleep') sleepRoutine()
-
-  // PvP commands (public)
-  if (message === '!pvp') {
+  if (msg === '!pvp') {
     const player = Object.values(bot.entities).find(
       e => e.type === 'player' && e.username.toLowerCase().endsWith(username.toLowerCase())
     )
@@ -181,7 +205,8 @@ async function onChat(username, message) {
     bot.chat(`PvP started against ${player.username}`)
     return
   }
-  if (message === '!pvpstop') {
+
+  if (msg === '!pvpstop') {
     pvpEnabled = false
     setCombatMovement(false)
     bot.pvp.stop()
@@ -189,8 +214,8 @@ async function onChat(username, message) {
     return
   }
 
-  // ---------------- Public Inventory Commands ----------------
-  if (message === '!drop') {
+  // ---------------- Inventory Commands ----------------
+  if (msg === '!drop') {
     const items = bot.inventory.items()
     if (!items.length) bot.chat("No items to drop.")
     else {
@@ -202,54 +227,25 @@ async function onChat(username, message) {
     return
   }
 
-  // Equip armor
-  if (message === '!armor') {
-    const slots = ['head', 'torso', 'legs', 'feet']
+  if (msg === '!armor') {
+    const slots = ['helmet', 'chestplate', 'leggings', 'boots']
     let equipped = false
     for (const slot of slots) {
-      if (!bot.inventory.slots[bot.getEquipmentDestSlot(slot)]) {
-        const item = bot.inventory.items().find(i => {
-          switch(slot) {
-            case 'head': return i.name.includes('helmet')
-            case 'torso': return i.name.includes('chestplate')
-            case 'legs': return i.name.includes('leggings')
-            case 'feet': return i.name.includes('boots')
-          }
-        })
-        if (item) {
-          try {
-            await bot.equip(item, slot)
-            equipped = true
-          } catch(err) { log(err.message) }
-        }
+      const item = bot.inventory.items().find(i => i.name.includes(slot))
+      if (item) {
+        try { await bot.equip(item, slot); equipped = true } catch {}
       }
     }
-    bot.chat(equipped ? "Equipped all armor." : "No armor found or slots already filled.")
+    bot.chat(equipped ? "Equipped all armor." : "No armor found in inventory.")
     return
   }
 
-  // Remove armor
-  if (message === '!remove') {
-    const slots = ['head', 'torso', 'legs', 'feet']
+  if (msg === '!remove') {
+    const slots = ['helmet', 'chestplate', 'leggings', 'boots']
     for (const slot of slots) {
-      const item = bot.inventory.slots[bot.getEquipmentDestSlot(slot)]
-      if (item) {
-        try { await bot.unequip(slot) } catch(err) { log(err.message) }
-      }
+      try { await bot.unequip(slot) } catch {}
     }
     bot.chat("Removed all armor.")
-    return
-  }
-
-  // ---------------- Public TPA ----------------
-  if (message.startsWith('!tpa ')) {
-    const args = message.split(' ')
-    if (args.length < 2) {
-      bot.chat('Usage: !tpa <username>')
-      return
-    }
-    const targetName = args[1]
-    bot.chat(`/tpa ${targetName}`)
     return
   }
 }
@@ -274,16 +270,13 @@ async function sleepRoutine() {
   if (sleeping) return
   const bed = bot.findBlock({ matching: b => bot.isABed(b), maxDistance: 16 })
   if (!bed) { bot.chat("No bed found nearby!"); return }
-
   try {
     sleeping = true
     const wasRoaming = roaming
     roaming = false
-
     bot.chat("Going to bed...")
     await goTo(bed.position)
     await bot.sleep(bed)
-
     bot.once('wake', () => {
       sleeping = false
       bot.chat("Woke up!")
@@ -307,14 +300,12 @@ async function roamLoop() {
       0,
       Math.floor(Math.random() * 11) - 5
     )
-
     const ground = bot.blockAt(pos.offset(0, -1, 0))
     const space = bot.blockAt(pos)
     if (!ground || ground.boundingBox !== 'block' || !space || space.boundingBox !== 'empty') {
       await delay(100)
       continue
     }
-
     try {
       bot.lookAt(pos.offset(0, 1.5, 0))
       await bot.pathfinder.goto(new GoalNear(pos.x, pos.y, pos.z, 1), { allowDig: false })
@@ -331,10 +322,7 @@ function followPlayer(target) {
     while (!cancelled) {
       if (!target || !target.position) break
       const pos = target.position.offset(0, 0, 0)
-      try {
-        bot.lookAt(pos.offset(0,1.5,0))
-        await bot.pathfinder.goto(new GoalNear(pos.x,pos.y,pos.z,1), { allowDig: false })
-      } catch {}
+      try { bot.lookAt(pos.offset(0,1.5,0)); await bot.pathfinder.goto(new GoalNear(pos.x,pos.y,pos.z,1), { allowDig: false }) } catch {}
       await delay(1000)
     }
   }
@@ -344,10 +332,7 @@ function followPlayer(target) {
 
 // ---------------- GoTo ----------------
 async function goTo(pos) {
-  try {
-    bot.lookAt(pos.offset(0, 1.5, 0))
-    await bot.pathfinder.goto(new GoalNear(pos.x,pos.y,pos.z,1), { allowDig: false })
-  } catch {}
+  try { bot.lookAt(pos.offset(0, 1.5, 0)); await bot.pathfinder.goto(new GoalNear(pos.x,pos.y,pos.z,1), { allowDig: false }) } catch {}
 }
 
 // ---------------- Utility ----------------
