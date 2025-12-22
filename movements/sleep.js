@@ -1,42 +1,42 @@
 // movements/sleep.js
 const { GoalNear } = require('mineflayer-pathfinder');
 
-let sleeping = false;
+async function sleepRoutine(bot, log, config = { searchRange: 16 }) {
+  if (bot.isSleeping) return;
 
-function sleepRoutine(bot, log, goTo, config) {
-  return new Promise(async (resolve) => {
-    if (sleeping) return resolve();
+  const bed = bot.findBlock({
+    matching: b => bot.isABed(b),
+    maxDistance: config.searchRange
+  });
 
-    const bed = bot.findBlock({
-      matching: b => bot.isABed(b),
-      maxDistance: config.searchRange
+  if (!bed) {
+    log('No bed found nearby.');
+    bot.chat('No bed found nearby.');
+    return;
+  }
+
+  log(`Heading to bed at ${bed.position}`);
+  bot.chat('Going to bed...');
+
+  try {
+    bot.isSleeping = true;        // ⬅️ lock sleep state
+    await bot.pathfinder.goto(new GoalNear(bed.position.x, bed.position.y, bed.position.z, 1));
+
+    await bot.sleep(bed);
+    bot.chat('Sleeping now...');
+    log('Sleeping...');
+
+    bot.once('wake', () => {
+      bot.isSleeping = false;     // ⬅️ unlock sleep state
+      bot.chat('Woke up!');
+      log('Woke up from sleep.');
     });
 
-    if (!bed) {
-      log('No bed found nearby.');
-      return resolve();
-    }
-
-    log(`Heading to bed at ${bed.position}`);
-    try {
-      await goTo(bot, bed.position);
-      await bot.sleep(bed);
-      sleeping = true;
-      bot.chat("Sleeping now...");
-      log('Sleeping...');
-
-      bot.once('wake', () => {
-        sleeping = false;
-        bot.chat("Woke up!");
-        log('Woke up from sleep.');
-        resolve();
-      });
-    } catch (e) {
-      log(`Sleep failed: ${e.message}`);
-      bot.chat(`Sleep failed: ${e.message}`);
-      resolve();
-    }
-  });
+  } catch (err) {
+    log(`Sleep failed: ${err.message}`);
+    bot.chat(`Sleep failed: ${err.message}`);
+    bot.isSleeping = false;
+  }
 }
 
 module.exports = sleepRoutine;
