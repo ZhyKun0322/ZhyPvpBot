@@ -11,14 +11,13 @@ const { attackPlayer } = require('./movements/combat');
 const { eatIfHungry } = require('./movements/eat');
 const sleepRoutine = require('./movements/sleep');
 const { equipArmor, removeArmor } = require('./movements/armor');
-const handleChat = require('./chats/commands'); // fixed import
-const log = require('./utils/logger'); // 🔥 direct function import
+const handleChat = require('./chats/commands');
+const log = require('./utils/logger');
 
 let bot;
 let mcData;
 let defaultMove;
 
-// Flags (stored on bot to share across modules)
 function setDefaultFlags(bot) {
   bot.isSleeping = false;
   bot.isRunning = true;
@@ -50,12 +49,12 @@ function createBot() {
     defaultMove = new Movements(bot, mcData);
 
     defaultMove.canDig = false;
-    defaultMove.canSwim = false; // only swim if needed
+    defaultMove.canSwim = false;
     bot.pathfinder.setMovements(defaultMove);
 
     // Chat commands
     bot.on('chat', (username, message) =>
-      handleChat(bot, username, message, bot)
+      handleChat(bot, username, message, { defaultMove, log })
     );
 
     // Eating handler
@@ -97,7 +96,7 @@ async function runLoop() {
 
     const dayTime = bot.time.dayTime;
     if (dayTime >= 13000 && dayTime <= 23458) {
-      await sleepRoutine(bot, log);
+      await sleepRoutine(bot, log, defaultMove, bot.pvpEnabled);
     } else {
       await wanderRoutine(bot, log);
     }
@@ -114,6 +113,4 @@ function delay(ms) {
 createBot();
 
 // Export for other modules
-module.exports = {
-  bot
-};
+module.exports = { bot };
