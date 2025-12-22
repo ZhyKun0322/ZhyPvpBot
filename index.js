@@ -36,6 +36,7 @@ function setCombatMovement(enabled) {
   bot.setControlState('jump', false)
 }
 
+// ---------------- Create Bot ----------------
 function createBot() {
   log('Creating bot...')
   bot = mineflayer.createBot({
@@ -53,9 +54,15 @@ function createBot() {
     log('Bot spawned')
 
     mcData = mcDataLoader(bot.version)
+
+    // Custom movements: no doors, no digging, no scaffolding
     defaultMove = new Movements(bot, mcData)
     defaultMove.canDig = false
     defaultMove.allow1by1tallDoors = false
+    defaultMove.allowParkour = false
+    defaultMove.scaffoldingBlocks = []
+    defaultMove.countScaffoldingItems = () => 0
+
     bot.pathfinder.setMovements(defaultMove)
 
     bot.on('chat', onChat)
@@ -65,6 +72,7 @@ function createBot() {
       if (autoEatEnabled && bot.food < 20 && !isEating) eatFood()
     })
 
+    // Start roaming automatically
     if (roaming) roamLoop()
   })
 
@@ -117,14 +125,13 @@ function onChat(username, message) {
     }
     return
   }
-
   if (isOwner && message === '!stoproam') {
     roaming = false
     bot.chat('Stopped roaming.')
     return
   }
 
-  // Follow
+  // Follow commands (owner only)
   if (isOwner && message === '!come') {
     const target = bot.players[username]?.entity
     if (!target) {
@@ -136,7 +143,6 @@ function onChat(username, message) {
     bot.chat(`Following ${username}`)
     return
   }
-
   if (isOwner && message === '!stop') {
     if (followTask) followTask.cancel()
     followTask = null
@@ -144,14 +150,17 @@ function onChat(username, message) {
     return
   }
 
-  // Auto-eat toggle
+  // Auto-eat toggle (owner only)
   if (isOwner && message === '!autoeat') {
     autoEatEnabled = !autoEatEnabled
     bot.chat(`Auto-eat is now ${autoEatEnabled ? 'ON' : 'OFF'}`)
     return
   }
 
-  // PvP (public)
+  // Sleep (owner only)
+  if (isOwner && message === '!sleep') sleepRoutine()
+
+  // PvP (public for all)
   if (message === '!pvp') {
     const player = Object.values(bot.entities).find(
       e => e.type === 'player' && e.username.toLowerCase().endsWith(username.toLowerCase())
@@ -185,8 +194,6 @@ function onChat(username, message) {
     bot.chat("PvP stopped")
     return
   }
-
-  if (isOwner && message === '!sleep') sleepRoutine()
 }
 
 // ---------------- Eating ----------------
@@ -247,13 +254,6 @@ async function roamLoop() {
       continue
     }
 
-    // Only attempt reachable paths
-    const path = bot.pathfinder.getPathTo(new GoalNear(pos.x, pos.y, pos.z, 1))
-    if (!path) {
-      await delay(100)
-      continue
-    }
-
     try {
       bot.lookAt(pos.offset(0, 1.5, 0))
       await bot.pathfinder.goto(new GoalNear(pos.x, pos.y, pos.z, 1))
@@ -299,4 +299,5 @@ async function goTo(pos) {
 // ---------------- Utility ----------------
 function delay(ms) { return new Promise(r => setTimeout(r, ms)) }
 
+// ---------------- Start Bot ----------------
 createBot()
