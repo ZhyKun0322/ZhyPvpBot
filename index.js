@@ -60,7 +60,7 @@ function createBot() {
 
     bot.on('chat', onChat)
 
-    // Physics tick handles auto-eating
+    // Auto-eat every tick
     bot.on('physicsTick', () => {
       if (autoEatEnabled && bot.food < 20 && !isEating) eatFood()
     })
@@ -106,10 +106,11 @@ function createBot() {
 function onChat(username, message) {
   if (username === bot.username) return
 
-  // Only ZhyKun can use owner commands
-  if (username !== 'ZhyKun') return
+  // Owner-only commands
+  const isOwner = username === 'ZhyKun'
 
-  if (message === '!roam') {
+  // Roam
+  if (isOwner && message === '!roam') {
     if (!roaming) {
       roaming = true
       bot.chat('Starting roam...')
@@ -118,14 +119,14 @@ function onChat(username, message) {
     return
   }
 
-  if (message === '!stoproam') {
+  if (isOwner && message === '!stoproam') {
     roaming = false
     bot.chat('Stopped roaming.')
     return
   }
 
-  // Follow commands
-  if (message === '!come') {
+  // Follow commands (owner only)
+  if (isOwner && message === '!come') {
     const target = bot.players[username]?.entity
     if (!target) {
       bot.chat("Can't see you!")
@@ -137,24 +138,24 @@ function onChat(username, message) {
     return
   }
 
-  if (message === '!stop') {
+  if (isOwner && message === '!stop') {
     if (followTask) followTask.cancel()
     followTask = null
     bot.chat("Stopped following")
     return
   }
 
-  // Toggle auto-eat
-  if (message === '!autoeat') {
+  // Auto-eat toggle (owner only)
+  if (isOwner && message === '!autoeat') {
     autoEatEnabled = !autoEatEnabled
     bot.chat(`Auto-eat is now ${autoEatEnabled ? 'ON' : 'OFF'}`)
     return
   }
 
-  // PvP (crossplay-ready)
+  // PvP (public for all players)
   if (message === '!pvp') {
     const player = Object.values(bot.entities).find(
-      e => e.type === 'player' && e.username.endsWith(username)
+      e => e.type === 'player' && e.username.toLowerCase().endsWith(username.toLowerCase())
     )
     if (!player) {
       bot.chat("Can't find you!")
@@ -186,7 +187,7 @@ function onChat(username, message) {
     return
   }
 
-  if (message === '!sleep') sleepRoutine()
+  if (isOwner && message === '!sleep') sleepRoutine()
 }
 
 // ---------------- Eating ----------------
@@ -213,7 +214,7 @@ async function sleepRoutine() {
   const bed = bot.findBlock({ matching: b => bot.isABed(b), maxDistance: 16 })
   if (!bed) return
 
-  // Wait for safe area
+  // Wait for nearby mobs to leave
   const safe = bot.nearestEntity(e => e.type === 'mob' && e.position.distanceTo(bot.entity.position) < 5)
   if (safe) {
     bot.chat("Waiting for mobs to leave before sleeping...")
@@ -242,12 +243,19 @@ async function roamLoop() {
     const ground = bot.blockAt(pos.offset(0, -1, 0))
     const space = bot.blockAt(pos)
 
-    if (ground?.boundingBox === 'block' && space?.boundingBox === 'empty') {
-      try {
-        bot.lookAt(pos.offset(0, 1.5, 0))
-        await bot.pathfinder.goto(new GoalNear(pos.x, pos.y, pos.z, 1))
-      } catch {}
+    // Skip if no floor or space blocked
+    if (!ground || ground.boundingBox !== 'block' || !space || space.boundingBox !== 'empty') {
+      await delay(100)
+      continue
     }
+
+    try {
+      bot.lookAt(pos.offset(0, 1.5, 0))
+      await bot.pathfinder.goto(new GoalNear(pos.x, pos.y, pos.z, 1))
+    } catch {
+      continue
+    }
+
     await delay(3000)
   }
 }
