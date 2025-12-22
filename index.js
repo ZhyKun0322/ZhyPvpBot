@@ -25,8 +25,6 @@ let isEating = false;
 let alreadyLoggedIn = false;
 let pvpEnabled = false;
 let armorEquipped = false;
-let patrolEnabled = false;
-let patrolTaskRunning = false;
 
 function createBot() {
   log('Creating bot...');
@@ -52,22 +50,22 @@ function createBot() {
 
     bot.pathfinder.setMovements(defaultMove);
 
-    // Attach modules
+    // Attach chat module
     bot.on('chat', (username, message) => chat(bot, username, message, {
       isRunning,
       sleeping,
       pvpEnabled,
-      armorEquipped,
-      patrolEnabled,
-      patrolTaskRunning
+      armorEquipped
     }));
 
+    // Attach eating module
     bot.on('physicsTick', () => eat(bot, { mcData, isEating }));
 
     // Start main loop
     runLoop();
   });
 
+  // Auto-register/login
   bot.on('message', (jsonMsg) => {
     if (alreadyLoggedIn) return;
     const msg = jsonMsg.toString().toLowerCase();
@@ -121,7 +119,5 @@ module.exports = {
   isRunning,
   isEating,
   pvpEnabled,
-  armorEquipped,
-  patrolEnabled,
-  patrolTaskRunning
+  armorEquipped
 };
