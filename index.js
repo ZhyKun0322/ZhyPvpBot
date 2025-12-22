@@ -11,11 +11,18 @@ let isEating = false
 let alreadyLoggedIn = false
 let pvpEnabled = false
 let followTask = null
-let roaming = true // Auto roam on spawn
+let roaming = true // auto-roam on spawn
 let autoEatEnabled = true
 
 // Add any foods you want to allow
-const preferredFoods = ['cooked_beef','cooked_chicken','bread','golden_apple','potato','cooked_potato']
+const preferredFoods = [
+  'cooked_beef',
+  'cooked_chicken',
+  'bread',
+  'golden_apple',
+  'potato',
+  'baked_potato'
+]
 
 function log(msg) {
   const time = new Date().toISOString()
@@ -52,15 +59,29 @@ function createBot() {
     bot.pathfinder.setMovements(defaultMove)
 
     bot.on('chat', onChat)
-    bot.on('physicsTick', eatIfHungryLoop)
 
-    if (roaming) roamLoop() // auto roam on spawn
+    // Physics tick handles auto-eating
+    bot.on('physicsTick', () => {
+      if (autoEatEnabled && bot.food < 20 && !isEating) eatFood()
+    })
+
+    if (roaming) roamLoop()
+  })
+
+  bot.on('respawn', () => {
+    log('Bot respawned')
+    sleeping = false
+    pvpEnabled = false
+    if (followTask) {
+      followTask.cancel()
+      followTask = null
+    }
+    if (roaming) roamLoop()
   })
 
   bot.on('message', jsonMsg => {
     if (alreadyLoggedIn) return
     const msg = jsonMsg.toString().toLowerCase()
-
     if (msg.includes('register')) {
       bot.chat(`/register ${config.password} ${config.password}`)
       alreadyLoggedIn = true
@@ -85,7 +106,7 @@ function createBot() {
 function onChat(username, message) {
   if (username === bot.username) return
 
-  // Owner-only commands
+  // Only ZhyKun can use owner commands
   if (username !== 'ZhyKun') return
 
   if (message === '!roam') {
@@ -110,7 +131,6 @@ function onChat(username, message) {
       bot.chat("Can't see you!")
       return
     }
-
     if (followTask) followTask.cancel()
     followTask = followPlayer(target)
     bot.chat(`Following ${username}`)
@@ -124,13 +144,7 @@ function onChat(username, message) {
     return
   }
 
-  // Force eat
-  if (message === '!eat') {
-    eatFood()
-    return
-  }
-
-  // Toggle auto eat
+  // Toggle auto-eat
   if (message === '!autoeat') {
     autoEatEnabled = !autoEatEnabled
     bot.chat(`Auto-eat is now ${autoEatEnabled ? 'ON' : 'OFF'}`)
@@ -172,28 +186,25 @@ function onChat(username, message) {
     return
   }
 
-  if (message === '!sleep') {
-    sleepRoutine()
-    return
-  }
+  if (message === '!sleep') sleepRoutine()
 }
 
 // ---------------- Eating ----------------
-function eatFood() {
+async function eatFood() {
+  if (isEating || bot.food >= 20) return
   const food = bot.inventory.items().find(i => preferredFoods.includes(i.name))
   if (!food) return
 
-  isEating = true
-  bot.clearControlStates() // stop movement
-  bot.equip(food, 'hand')
-    .then(() => bot.consume())
-    .finally(() => { isEating = false })
-}
-
-function eatIfHungryLoop() {
-  if (!autoEatEnabled) return
-  if (bot.food >= 20 || isEating) return
-  eatFood()
+  try {
+    isEating = true
+    bot.clearControlStates()
+    await bot.equip(food, 'hand')
+    await bot.consume()
+  } catch (err) {
+    log('Failed to eat: ' + err.message)
+  } finally {
+    isEating = false
+  }
 }
 
 // ---------------- Sleep ----------------
@@ -235,15 +246,13 @@ async function roamLoop() {
       try {
         bot.lookAt(pos.offset(0, 1.5, 0))
         await bot.pathfinder.goto(new GoalNear(pos.x, pos.y, pos.z, 1))
-      } catch {
-        // unreachable, just continue
-      }
+      } catch {}
     }
     await delay(3000)
   }
 }
 
-// ---------------- Follow Routine ----------------
+// ---------------- Follow ----------------
 function followPlayer(target) {
   let cancelled = false
 
@@ -266,6 +275,14 @@ function followPlayer(target) {
       cancelled = true
     }
   }
+}
+
+// ---------------- GoTo ----------------
+async function goTo(pos) {
+  try {
+    bot.lookAt(pos.offset(0, 1.5, 0))
+    await bot.pathfinder.goto(new GoalNear(pos.x, pos.y, pos.z, 1))
+  } catch {}
 }
 
 // ---------------- Utility ----------------
