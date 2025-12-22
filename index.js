@@ -209,25 +209,33 @@ async function onChat(username, message) {
   }
 
   if (message === '!armor') {
-    const armorSlots = ['helmet', 'chestplate', 'leggings', 'boots']
+    // Equip all armor found in inventory
+    const armorSlots = ['head', 'torso', 'legs', 'feet']
     let equipped = false
+
     for (const slot of armorSlots) {
-      const item = bot.inventory.items().find(i => i.name.includes(slot))
+      const item = bot.inventory.items().find(i => 
+        (i.name.includes('helmet') && slot === 'head') ||
+        (i.name.includes('chestplate') && slot === 'torso') ||
+        (i.name.includes('leggings') && slot === 'legs') ||
+        (i.name.includes('boots') && slot === 'feet')
+      )
       if (item) {
-        try { await bot.equip(item, slot); equipped = true } catch {}
+        try {
+          await bot.equip(item, slot)
+          equipped = true
+        } catch {}
       }
     }
+
     bot.chat(equipped ? "Equipped all armor." : "No armor found in inventory.")
     return
   }
 
   if (message === '!remove') {
-    const armorSlots = ['helmet', 'chestplate', 'leggings', 'boots']
+    const armorSlots = ['head', 'torso', 'legs', 'feet']
     for (const slot of armorSlots) {
-      const item = bot.inventory.slots[bot.getEquipmentDestSlot(slot)]
-      if (item) {
-        try { await bot.unequip(slot) } catch {}
-      }
+      try { await bot.unequip(slot) } catch {}
     }
     bot.chat("Removed all armor.")
     return
