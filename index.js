@@ -55,14 +55,14 @@ function createBot() {
 
     mcData = mcDataLoader(bot.version)
 
-    // Custom movements: no doors, no digging, no scaffolding
+    // Custom movements: no digging, no doors, no scaffolding
     defaultMove = new Movements(bot, mcData)
     defaultMove.canDig = false
+    defaultMove.canPlace = false
     defaultMove.allow1by1tallDoors = false
     defaultMove.allowParkour = false
     defaultMove.scaffoldingBlocks = []
     defaultMove.countScaffoldingItems = () => 0
-
     bot.pathfinder.setMovements(defaultMove)
 
     bot.on('chat', onChat)
@@ -113,10 +113,9 @@ function createBot() {
 // ---------------- Chat Commands ----------------
 async function onChat(username, message) {
   if (username === bot.username) return
-
   const isOwner = username === 'ZhyKun'
 
-  // Roam
+  // Roam commands (owner only)
   if (isOwner && message === '!roam') {
     if (!roaming) {
       roaming = true
@@ -157,10 +156,10 @@ async function onChat(username, message) {
     return
   }
 
-  // Sleep (public)
+  // Sleep command (public)
   if (message === '!sleep') sleepRoutine()
 
-  // PvP (public)
+  // PvP commands (public)
   if (message === '!pvp') {
     const player = Object.values(bot.entities).find(
       e => e.type === 'player' && e.username.toLowerCase().endsWith(username.toLowerCase())
@@ -169,16 +168,13 @@ async function onChat(username, message) {
       bot.chat("Can't find you!")
       return
     }
-
     const weapon =
       bot.inventory.items().find(i => i.name.includes('sword')) ||
       bot.inventory.items().find(i => i.name.includes('axe'))
-
     if (!weapon) {
       bot.chat("No weapon found!")
       return
     }
-
     bot.equip(weapon, 'hand')
     pvpEnabled = true
     setCombatMovement(true)
@@ -186,7 +182,6 @@ async function onChat(username, message) {
     bot.chat(`PvP started against ${player.username}`)
     return
   }
-
   if (message === '!pvpstop') {
     pvpEnabled = false
     setCombatMovement(false)
@@ -209,32 +204,21 @@ async function onChat(username, message) {
   }
 
   if (message === '!armor') {
-    // Equip all armor found in inventory
-    const armorSlots = ['head', 'torso', 'legs', 'feet']
+    const slots = ['helmet', 'chestplate', 'leggings', 'boots']
     let equipped = false
-
-    for (const slot of armorSlots) {
-      const item = bot.inventory.items().find(i => 
-        (i.name.includes('helmet') && slot === 'head') ||
-        (i.name.includes('chestplate') && slot === 'torso') ||
-        (i.name.includes('leggings') && slot === 'legs') ||
-        (i.name.includes('boots') && slot === 'feet')
-      )
+    for (const slot of slots) {
+      const item = bot.inventory.items().find(i => i.name.includes(slot))
       if (item) {
-        try {
-          await bot.equip(item, slot)
-          equipped = true
-        } catch {}
+        try { await bot.equip(item, slot); equipped = true } catch {}
       }
     }
-
     bot.chat(equipped ? "Equipped all armor." : "No armor found in inventory.")
     return
   }
 
   if (message === '!remove') {
-    const armorSlots = ['head', 'torso', 'legs', 'feet']
-    for (const slot of armorSlots) {
+    const slots = ['helmet', 'chestplate', 'leggings', 'boots']
+    for (const slot of slots) {
       try { await bot.unequip(slot) } catch {}
     }
     bot.chat("Removed all armor.")
@@ -247,7 +231,6 @@ async function eatFood() {
   if (isEating || bot.food >= 20) return
   const food = bot.inventory.items().find(i => preferredFoods.includes(i.name))
   if (!food) return
-
   try {
     isEating = true
     bot.clearControlStates()
@@ -255,24 +238,19 @@ async function eatFood() {
     await bot.consume()
   } catch (err) {
     log('Failed to eat: ' + err.message)
-  } finally {
-    isEating = false
-  }
+  } finally { isEating = false }
 }
 
 // ---------------- Sleep ----------------
 async function sleepRoutine() {
   if (sleeping) return
   const bed = bot.findBlock({ matching: b => bot.isABed(b), maxDistance: 16 })
-  if (!bed) { 
-    bot.chat("No bed found nearby!") 
-    return 
-  }
+  if (!bed) { bot.chat("No bed found nearby!"); return }
 
   try {
     sleeping = true
     const wasRoaming = roaming
-    roaming = false // pause roaming while sleeping
+    roaming = false // pause roaming
 
     bot.chat("Going to bed...")
     await goTo(bed.position)
@@ -281,14 +259,12 @@ async function sleepRoutine() {
     bot.once('wake', () => {
       sleeping = false
       bot.chat("Woke up!")
-
-      // Resume roaming if it was active before sleeping
       if (wasRoaming) {
         roaming = true
         if (!bot.roamingLoopActive) roamLoop()
       }
     })
-  } catch (err) { 
+  } catch (err) {
     sleeping = false
     log('Sleep failed: ' + err.message)
   }
@@ -306,7 +282,6 @@ async function roamLoop() {
 
     const ground = bot.blockAt(pos.offset(0, -1, 0))
     const space = bot.blockAt(pos)
-
     if (!ground || ground.boundingBox !== 'block' || !space || space.boundingBox !== 'empty') {
       await delay(100)
       continue
@@ -314,7 +289,7 @@ async function roamLoop() {
 
     try {
       bot.lookAt(pos.offset(0, 1.5, 0))
-      await bot.pathfinder.goto(new GoalNear(pos.x, pos.y, pos.z, 1))
+      await bot.pathfinder.goto(new GoalNear(pos.x, pos.y, pos.z, 1), { allowDig: false })
     } catch {}
     await delay(3000)
   }
@@ -328,7 +303,10 @@ function followPlayer(target) {
     while (!cancelled) {
       if (!target || !target.position) break
       const pos = target.position.offset(0, 0, 0)
-      try { bot.lookAt(pos.offset(0,1.5,0)); await bot.pathfinder.goto(new GoalNear(pos.x,pos.y,pos.z,1)) } catch {}
+      try {
+        bot.lookAt(pos.offset(0,1.5,0))
+        await bot.pathfinder.goto(new GoalNear(pos.x,pos.y,pos.z,1), { allowDig: false })
+      } catch {}
       await delay(1000)
     }
   }
@@ -338,7 +316,10 @@ function followPlayer(target) {
 
 // ---------------- GoTo ----------------
 async function goTo(pos) {
-  try { bot.lookAt(pos.offset(0, 1.5, 0)); await bot.pathfinder.goto(new GoalNear(pos.x, pos.y, pos.z, 1)) } catch {}
+  try {
+    bot.lookAt(pos.offset(0, 1.5, 0))
+    await bot.pathfinder.goto(new GoalNear(pos.x,pos.y,pos.z,1), { allowDig: false })
+  } catch {}
 }
 
 // ---------------- Utility ----------------
