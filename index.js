@@ -10,7 +10,7 @@ const { wanderRoutine } = require('./movements/roam');
 const { eatIfHungry } = require('./movements/eat');
 const { sleepRoutine } = require('./movements/sleep');
 const { equipArmor, removeArmor } = require('./movements/armor');
-const chat = require('./chat/commands'); // Your chat module
+const chat = require('./chats/commands'); // Your chat module
 const { log } = require('./utils/logger');
 
 let bot;
