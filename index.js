@@ -22,6 +22,7 @@ const preferredFoods = [
   'golden_apple',
   'potato',
   'baked_potato'
+  'carrot'
 ]
 
 function log(msg) {
