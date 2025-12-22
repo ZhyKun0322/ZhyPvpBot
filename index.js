@@ -15,6 +15,9 @@ let pvpEnabled = false
 let armorEquipped = false
 let patrolEnabled = false
 let patrolTaskRunning = false
+let followTask = null // follow routine handle
+
+const preferredFoods = ['cooked_beef', 'cooked_chicken', 'bread', 'golden_apple']
 
 function log(msg) {
   const time = new Date().toISOString()
@@ -48,9 +51,7 @@ function createBot() {
     mcData = mcDataLoader(bot.version)
     defaultMove = new Movements(bot, mcData)
 
-    // 🚫 NO DOORS
     defaultMove.allow1by1tallDoors = false
-    // 🚫 NO BLOCK BREAKING
     defaultMove.canDig = false
 
     bot.pathfinder.setMovements(defaultMove)
@@ -78,6 +79,7 @@ function createBot() {
   bot.on('error', err => log(err.message))
 }
 
+// ---------------- Chat Commands ----------------
 function onChat(username, message) {
   if (username === bot.username) return
 
@@ -86,9 +88,8 @@ function onChat(username, message) {
     return
   }
 
-  // ✅ PvP (crossplay-ready)
+  // PvP (crossplay-ready)
   if (message === '!pvp') {
-    // use endsWith to match Bedrock players
     const player = Object.values(bot.entities).find(
       e => e.type === 'player' && e.username.endsWith(username)
     )
@@ -122,7 +123,7 @@ function onChat(username, message) {
     return
   }
 
-  // 🔒 Owner commands
+  // Owner commands
   if (username !== 'ZhyKun') return
 
   if (message === '!roam') wanderRoutine()
@@ -131,12 +132,34 @@ function onChat(username, message) {
     runPatrol()
   }
   if (message === '!patrolstop') patrolEnabled = false
+
+  // Follow commands
+  if (message === '!come') {
+    const target = bot.players[username]?.entity
+    if (!target) {
+      bot.chat("Can't see you!")
+      return
+    }
+
+    if (followTask) followTask.cancel()
+    followTask = followPlayer(target)
+    bot.chat(`Following ${username}`)
+    return
+  }
+
+  if (message === '!stop') {
+    if (followTask) followTask.cancel()
+    followTask = null
+    bot.chat("Stopped following")
+    return
+  }
 }
 
+// ---------------- Eating ----------------
 function eatIfHungry() {
   if (isEating || bot.food === 20) return
 
-  const food = bot.inventory.items().find(i => mcData.items[i.type]?.food)
+  const food = bot.inventory.items().find(i => preferredFoods.includes(i.name))
   if (!food) return
 
   isEating = true
@@ -145,6 +168,7 @@ function eatIfHungry() {
     .finally(() => (isEating = false))
 }
 
+// ---------------- Loops ----------------
 async function runLoop() {
   while (true) {
     if (!isRunning || sleeping || pvpEnabled) {
@@ -160,6 +184,7 @@ async function runLoop() {
   }
 }
 
+// ---------------- Sleep ----------------
 async function sleepRoutine() {
   if (sleeping) return
   const bed = bot.findBlock({ matching: b => bot.isABed(b), maxDistance: 16 })
@@ -172,6 +197,7 @@ async function sleepRoutine() {
   bot.once('wake', () => (sleeping = false))
 }
 
+// ---------------- Wander ----------------
 async function wanderRoutine() {
   for (let i = 0; i < 5; i++) {
     if (sleeping || pvpEnabled) return
@@ -202,6 +228,7 @@ function delay(ms) {
   return new Promise(r => setTimeout(r, ms))
 }
 
+// ---------------- Patrol ----------------
 async function runPatrol() {
   if (patrolTaskRunning) return
   patrolTaskRunning = true
@@ -219,6 +246,28 @@ async function runPatrol() {
 
   setCombatMovement(false)
   patrolTaskRunning = false
+}
+
+// ---------------- Follow Routine ----------------
+function followPlayer(target) {
+  let cancelled = false
+
+  async function loop() {
+    while (!cancelled) {
+      if (!target || !target.position) break
+      const pos = target.position.offset(0, 0, 0)
+      await goTo(pos)
+      await delay(1000)
+    }
+  }
+
+  loop()
+
+  return {
+    cancel() {
+      cancelled = true
+    }
+  }
 }
 
 createBot()
