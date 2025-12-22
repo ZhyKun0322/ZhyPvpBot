@@ -21,7 +21,7 @@ const preferredFoods = [
   'bread',
   'golden_apple',
   'potato',
-  'baked_potato'
+  'baked_potato',
   'carrot'
 ]
 
