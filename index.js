@@ -9,22 +9,24 @@ const config = require('./config.json');
 const { wanderRoutine } = require('./movements/roam');
 const { attackPlayer } = require('./movements/combat');
 const { eatIfHungry } = require('./movements/eat');
-const { sleepRoutine } = require('./movements/sleep');
+const sleepRoutine = require('./movements/sleep');
 const { equipArmor, removeArmor } = require('./movements/armor');
-const chat = require('./chats/commands'); // Your chat commands
-const { log } = require('./utils/logger');
+const handleChat = require('./chats/commands'); // fixed import
+const log = require('./utils/logger'); // 🔥 direct function import
 
 let bot;
 let mcData;
 let defaultMove;
 
-// Flags
-let sleeping = false;
-let isRunning = true;
-let isEating = false;
-let alreadyLoggedIn = false;
-let pvpEnabled = false;
-let armorEquipped = false;
+// Flags (stored on bot to share across modules)
+function setDefaultFlags(bot) {
+  bot.isSleeping = false;
+  bot.isRunning = true;
+  bot.isEating = false;
+  bot.alreadyLoggedIn = false;
+  bot.pvpEnabled = false;
+  bot.armorEquipped = false;
+}
 
 function createBot() {
   log('Creating bot...');
@@ -36,6 +38,8 @@ function createBot() {
     auth: 'offline'
   });
 
+  setDefaultFlags(bot);
+
   bot.loadPlugin(pathfinder);
   bot.loadPlugin(pvp);
 
@@ -45,18 +49,14 @@ function createBot() {
     mcData = mcDataLoader(bot.version);
     defaultMove = new Movements(bot, mcData);
 
-    // Prevent block breaking outside combat
     defaultMove.canDig = false;
-    defaultMove.canSwim = false; // only swim in combat if needed
+    defaultMove.canSwim = false; // only swim if needed
     bot.pathfinder.setMovements(defaultMove);
 
     // Chat commands
-    bot.on('chat', (username, message) => chat(bot, username, message, {
-      isRunning,
-      sleeping,
-      pvpEnabled,
-      armorEquipped
-    }));
+    bot.on('chat', (username, message) =>
+      handleChat(bot, username, message, bot)
+    );
 
     // Eating handler
     bot.on('physicsTick', () => eatIfHungry(bot, log));
@@ -67,16 +67,16 @@ function createBot() {
 
   // Auto-register/login
   bot.on('message', (jsonMsg) => {
-    if (alreadyLoggedIn) return;
+    if (bot.alreadyLoggedIn) return;
     const msg = jsonMsg.toString().toLowerCase();
     if (msg.includes('register')) {
       bot.chat(`/register ${config.password} ${config.password}`);
       log('Sent register command.');
-      alreadyLoggedIn = true;
+      bot.alreadyLoggedIn = true;
     } else if (msg.includes('login')) {
       bot.chat(`/login ${config.password}`);
       log('Sent login command.');
-      alreadyLoggedIn = true;
+      bot.alreadyLoggedIn = true;
     }
   });
 
@@ -90,7 +90,7 @@ function createBot() {
 
 async function runLoop() {
   while (true) {
-    if (!isRunning || sleeping || pvpEnabled) {
+    if (!bot.isRunning || bot.isSleeping || bot.pvpEnabled) {
       await delay(3000);
       continue;
     }
@@ -113,12 +113,7 @@ function delay(ms) {
 // Start the bot
 createBot();
 
-// Export for other modules if needed
+// Export for other modules
 module.exports = {
-  bot,
-  sleeping,
-  isRunning,
-  isEating,
-  pvpEnabled,
-  armorEquipped
+  bot
 };
