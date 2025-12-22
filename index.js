@@ -11,10 +11,10 @@ let isEating = false
 let alreadyLoggedIn = false
 let pvpEnabled = false
 let followTask = null
-let roaming = true // auto-roam on spawn
+let roaming = true
 let autoEatEnabled = true
 
-// Add any foods you want to allow
+// Foods the bot can eat
 const preferredFoods = [
   'cooked_beef',
   'cooked_chicken',
@@ -106,7 +106,6 @@ function createBot() {
 function onChat(username, message) {
   if (username === bot.username) return
 
-  // Owner-only commands
   const isOwner = username === 'ZhyKun'
 
   // Roam
@@ -125,7 +124,7 @@ function onChat(username, message) {
     return
   }
 
-  // Follow commands (owner only)
+  // Follow
   if (isOwner && message === '!come') {
     const target = bot.players[username]?.entity
     if (!target) {
@@ -145,14 +144,14 @@ function onChat(username, message) {
     return
   }
 
-  // Auto-eat toggle (owner only)
+  // Auto-eat toggle
   if (isOwner && message === '!autoeat') {
     autoEatEnabled = !autoEatEnabled
     bot.chat(`Auto-eat is now ${autoEatEnabled ? 'ON' : 'OFF'}`)
     return
   }
 
-  // PvP (public for all players)
+  // PvP (public)
   if (message === '!pvp') {
     const player = Object.values(bot.entities).find(
       e => e.type === 'player' && e.username.toLowerCase().endsWith(username.toLowerCase())
@@ -243,8 +242,14 @@ async function roamLoop() {
     const ground = bot.blockAt(pos.offset(0, -1, 0))
     const space = bot.blockAt(pos)
 
-    // Skip if no floor or space blocked
     if (!ground || ground.boundingBox !== 'block' || !space || space.boundingBox !== 'empty') {
+      await delay(100)
+      continue
+    }
+
+    // Only attempt reachable paths
+    const path = bot.pathfinder.getPathTo(new GoalNear(pos.x, pos.y, pos.z, 1))
+    if (!path) {
       await delay(100)
       continue
     }
@@ -279,9 +284,7 @@ function followPlayer(target) {
   loop()
 
   return {
-    cancel() {
-      cancelled = true
-    }
+    cancel() { cancelled = true }
   }
 }
 
