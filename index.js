@@ -7,10 +7,11 @@ const config = require('./config.json');
 
 // Modules
 const { wanderRoutine } = require('./movements/roam');
+const { attackPlayer } = require('./movements/combat');
 const { eatIfHungry } = require('./movements/eat');
 const { sleepRoutine } = require('./movements/sleep');
 const { equipArmor, removeArmor } = require('./movements/armor');
-const chat = require('./chats/commands'); // Your chat module
+const chat = require('./chats/commands'); // Your chat commands
 const { log } = require('./utils/logger');
 
 let bot;
@@ -20,9 +21,10 @@ let defaultMove;
 // Flags
 let sleeping = false;
 let isRunning = true;
+let isEating = false;
+let alreadyLoggedIn = false;
 let pvpEnabled = false;
 let armorEquipped = false;
-let alreadyLoggedIn = false;
 
 function createBot() {
   log('Creating bot...');
@@ -43,12 +45,12 @@ function createBot() {
     mcData = mcDataLoader(bot.version);
     defaultMove = new Movements(bot, mcData);
 
-    // 🚫 Prevent block breaking outside combat
+    // Prevent block breaking outside combat
     defaultMove.canDig = false;
-
+    defaultMove.canSwim = false; // only swim in combat if needed
     bot.pathfinder.setMovements(defaultMove);
 
-    // Attach chat module
+    // Chat commands
     bot.on('chat', (username, message) => chat(bot, username, message, {
       isRunning,
       sleeping,
@@ -56,7 +58,7 @@ function createBot() {
       armorEquipped
     }));
 
-    // Attach eating module
+    // Eating handler
     bot.on('physicsTick', () => eatIfHungry(bot, log));
 
     // Start main loop
@@ -108,13 +110,15 @@ function delay(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
 
-// Start bot
+// Start the bot
 createBot();
 
+// Export for other modules if needed
 module.exports = {
   bot,
   sleeping,
   isRunning,
+  isEating,
   pvpEnabled,
   armorEquipped
 };
