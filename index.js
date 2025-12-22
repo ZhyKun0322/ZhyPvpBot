@@ -41,8 +41,10 @@ function createBot() {
     log('Bot has spawned in the world.');
     mcData = mcDataLoader(bot.version);
     defaultMove = new Movements(bot, mcData);
-    defaultMove.allow1by1tallDoors = true;
+
+    // 🚫 No block breaking
     defaultMove.canDig = false;
+
     bot.pathfinder.setMovements(defaultMove);
 
     bot.on('chat', onChat);
@@ -86,7 +88,7 @@ function onChat(username, message) {
     return;
   }
 
-  // ✅ Public commands (available to everyone)
+  // ✅ Public commands
   if (message === '!sleep') {
     bot.chat("Trying to sleep...");
     sleepRoutine();
@@ -94,47 +96,50 @@ function onChat(username, message) {
   }
 
   if (message === '!pvp') {
-  const player = Object.values(bot.entities).find(e => e.type === 'player' && e.username === username);
-  if (player) {
-    const sword = bot.inventory.items().find(item => item.name.includes('sword'));
-    const axe = bot.inventory.items().find(item => item.name.includes('axe') && !item.name.includes('pickaxe'));
-    const bow = bot.inventory.items().find(item => item.name.includes('bow'));
+    // Bedrock support: usernames can have "."
+    const player = Object.values(bot.entities).find(
+      e => e.type === 'player' && e.username.toLowerCase() === username.toLowerCase()
+    );
+    if (player) {
+      const sword = bot.inventory.items().find(item => item.name.includes('sword'));
+      const axe = bot.inventory.items().find(item => item.name.includes('axe') && !item.name.includes('pickaxe'));
+      const bow = bot.inventory.items().find(item => item.name.includes('bow'));
 
-    const dist = bot.entity.position.distanceTo(player.position);
+      const dist = bot.entity.position.distanceTo(player.position);
 
-    if (dist >= 10 && bow) {
-      bot.equip(bow, 'hand').then(() => {
-        log(`Equipped bow for ranged PvP.`);
-      }).catch(e => log(`Error equipping bow: ${e.message}`));
-    } else if (sword) {
-      bot.equip(sword, 'hand').then(() => {
-        log(`Equipped sword: ${sword.name}`);
-      }).catch(e => log(`Error equipping sword: ${e.message}`));
-    } else if (axe) {
-      bot.equip(axe, 'hand').then(() => {
-        log(`No sword found. Equipped axe: ${axe.name}`);
-      }).catch(e => log(`Error equipping axe: ${e.message}`));
+      if (dist >= 10 && bow) {
+        bot.equip(bow, 'hand').then(() => {
+          log(`Equipped bow for ranged PvP.`);
+        }).catch(e => log(`Error equipping bow: ${e.message}`));
+      } else if (sword) {
+        bot.equip(sword, 'hand').then(() => {
+          log(`Equipped sword: ${sword.name}`);
+        }).catch(e => log(`Error equipping sword: ${e.message}`));
+      } else if (axe) {
+        bot.equip(axe, 'hand').then(() => {
+          log(`No sword found. Equipped axe: ${axe.name}`);
+        }).catch(e => log(`Error equipping axe: ${e.message}`));
+      } else {
+        bot.chat("No sword or axe found in inventory!");
+        log("PvP canceled: No weapon found.");
+        return;
+      }
+
+      pvpEnabled = true;
+      bot.pvp.attack(player);
+      bot.chat(`PvP started against ${username}.`);
+      log(`Started PvP against ${username}`);
     } else {
-      bot.chat("No sword or axe found in inventory!");
-      log("PvP canceled: No weapon found.");
-      return;
+      bot.chat("Can't find you!");
+      const detectedNames = Object.values(bot.entities)
+        .filter(e => e.type === 'player' && e.username)
+        .map(e => e.username)
+        .join(', ');
+      log(`Detected players when trying PvP: ${detectedNames || 'None'}`);
     }
+    return;
+  }
 
-    pvpEnabled = true;
-    bot.pvp.attack(player);
-    bot.chat(`PvP started against ${username}.`);
-    log(`Started PvP against ${username}`);
-  } else {
-    bot.chat("Can't find you!");
-    const detectedNames = Object.values(bot.entities)
-      .filter(e => e.type === 'player' && e.username)
-      .map(e => e.username)
-      .join(', ');
-    log(`Detected players when trying PvP: ${detectedNames || 'None'}`);
-  }
-  return;
-  }
-  
   if (message === '!pvpstop') {
     pvpEnabled = false;
     bot.pvp.stop();
@@ -153,7 +158,7 @@ function onChat(username, message) {
     return;
   }
 
-  // 🔒 Owner-only commands (ZhyKun only)
+  // 🔒 Owner-only commands
   if (username !== 'ZhyKun') return;
 
   if (message === '!stop') {
@@ -174,7 +179,7 @@ function onChat(username, message) {
     return;
   }
 
-    if (message === '!come') {
+  if (message === '!come') {
     const player = Object.values(bot.entities).find(e => e.type === 'player' && e.username === username);
     if (player) {
       bot.chat('Coming to you!');
@@ -197,8 +202,8 @@ function onChat(username, message) {
     bot.chat('Stopped patrolling.');
     return;
   }
-}  
-  
+}
+
 function eatIfHungry() {
   if (isEating || bot.food === 20) return;
 
