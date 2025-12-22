@@ -218,20 +218,30 @@ async function eatFood() {
 async function sleepRoutine() {
   if (sleeping) return
   const bed = bot.findBlock({ matching: b => bot.isABed(b), maxDistance: 16 })
-  if (!bed) return
-
-  // Wait for nearby mobs to leave
-  const safe = bot.nearestEntity(e => e.type === 'mob' && e.position.distanceTo(bot.entity.position) < 5)
-  if (safe) {
-    bot.chat("Waiting for mobs to leave before sleeping...")
-    await delay(5000)
+  if (!bed) {
+    bot.chat("No bed found nearby!")
+    return
   }
 
   try {
+    // Stop roaming temporarily
+    const wasRoaming = roaming
+    roaming = false
+
+    bot.chat("Going to bed...")
     await goTo(bed.position)
     await bot.sleep(bed)
     sleeping = true
-    bot.once('wake', () => sleeping = false)
+
+    // Resume roaming after wake
+    bot.once('wake', () => {
+      sleeping = false
+      if (wasRoaming) {
+        roaming = true
+        roamLoop()
+      }
+      bot.chat("Woke up, resuming roaming.")
+    })
   } catch (err) {
     log('Sleep failed: ' + err.message)
   }
