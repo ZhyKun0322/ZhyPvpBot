@@ -11,7 +11,7 @@ const combat = require('./movements/combat');
 const eat = require('./movements/eat');
 const sleep = require('./movements/sleep');
 const armor = require('./movements/armor');
-const chat = require('./chat');
+const chat = require('./chats/commands'); // <- FIXED path
 const { log } = require('./utils/logger');
 
 let bot;
@@ -51,12 +51,14 @@ function createBot() {
     bot.pathfinder.setMovements(defaultMove);
 
     // Attach chat module
-    bot.on('chat', (username, message) => chat(bot, username, message, {
-      isRunning,
-      sleeping,
-      pvpEnabled,
-      armorEquipped
-    }));
+    bot.on('chat', (username, message) =>
+      chat(bot, username, message, {
+        isRunning,
+        sleeping,
+        pvpEnabled,
+        armorEquipped
+      })
+    );
 
     // Attach eating module
     bot.on('physicsTick', () => eat(bot, { mcData, isEating }));
@@ -80,8 +82,8 @@ function createBot() {
     }
   });
 
-  bot.on('kicked', reason => log(`[KICKED] ${reason}`));
-  bot.on('error', err => log(`[ERROR] ${err.message}`));
+  bot.on('kicked', (reason) => log(`[KICKED] ${reason}`));
+  bot.on('error', (err) => log(`[ERROR] ${err.message}`));
   bot.on('end', () => {
     log('Bot disconnected. Reconnecting in 5 seconds...');
     setTimeout(createBot, 5000);
@@ -107,7 +109,7 @@ async function runLoop() {
 }
 
 function delay(ms) {
-  return new Promise(r => setTimeout(r, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // Start bot
