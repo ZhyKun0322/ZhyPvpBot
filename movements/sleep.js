@@ -19,7 +19,7 @@ async function sleepRoutine(bot, log, config = { searchRange: 16 }) {
   bot.chat('Going to bed...');
 
   try {
-    bot.isSleeping = true;        // ⬅️ lock sleep state
+    bot.isSleeping = true; // lock sleep state
     await bot.pathfinder.goto(new GoalNear(bed.position.x, bed.position.y, bed.position.z, 1));
 
     await bot.sleep(bed);
@@ -27,7 +27,7 @@ async function sleepRoutine(bot, log, config = { searchRange: 16 }) {
     log('Sleeping...');
 
     bot.once('wake', () => {
-      bot.isSleeping = false;     // ⬅️ unlock sleep state
+      bot.isSleeping = false; // unlock sleep state
       bot.chat('Woke up!');
       log('Woke up from sleep.');
     });
