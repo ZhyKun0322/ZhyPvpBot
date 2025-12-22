@@ -6,12 +6,11 @@ const mcDataLoader = require('minecraft-data');
 const config = require('./config.json');
 
 // Modules
-const roam = require('./movements/roam');
-const combat = require('./movements/combat');
-const eat = require('./movements/eat');
-const sleep = require('./movements/sleep');
-const armor = require('./movements/armor');
-const chat = require('./chats/commands'); // <- FIXED path
+const { wanderRoutine } = require('./movements/roam');
+const { eatIfHungry } = require('./movements/eat');
+const { sleepRoutine } = require('./movements/sleep');
+const { equipArmor, removeArmor } = require('./movements/armor');
+const chat = require('./chat/commands'); // Your chat module
 const { log } = require('./utils/logger');
 
 let bot;
@@ -21,10 +20,9 @@ let defaultMove;
 // Flags
 let sleeping = false;
 let isRunning = true;
-let isEating = false;
-let alreadyLoggedIn = false;
 let pvpEnabled = false;
 let armorEquipped = false;
+let alreadyLoggedIn = false;
 
 function createBot() {
   log('Creating bot...');
@@ -51,17 +49,15 @@ function createBot() {
     bot.pathfinder.setMovements(defaultMove);
 
     // Attach chat module
-    bot.on('chat', (username, message) =>
-      chat(bot, username, message, {
-        isRunning,
-        sleeping,
-        pvpEnabled,
-        armorEquipped
-      })
-    );
+    bot.on('chat', (username, message) => chat(bot, username, message, {
+      isRunning,
+      sleeping,
+      pvpEnabled,
+      armorEquipped
+    }));
 
     // Attach eating module
-    bot.on('physicsTick', () => eat(bot, { mcData, isEating }));
+    bot.on('physicsTick', () => eatIfHungry(bot, log));
 
     // Start main loop
     runLoop();
@@ -82,8 +78,8 @@ function createBot() {
     }
   });
 
-  bot.on('kicked', (reason) => log(`[KICKED] ${reason}`));
-  bot.on('error', (err) => log(`[ERROR] ${err.message}`));
+  bot.on('kicked', reason => log(`[KICKED] ${reason}`));
+  bot.on('error', err => log(`[ERROR] ${err.message}`));
   bot.on('end', () => {
     log('Bot disconnected. Reconnecting in 5 seconds...');
     setTimeout(createBot, 5000);
@@ -99,9 +95,9 @@ async function runLoop() {
 
     const dayTime = bot.time.dayTime;
     if (dayTime >= 13000 && dayTime <= 23458) {
-      await sleep(bot);
+      await sleepRoutine(bot, log);
     } else {
-      await roam(bot);
+      await wanderRoutine(bot, log);
     }
 
     await delay(5000);
@@ -109,7 +105,7 @@ async function runLoop() {
 }
 
 function delay(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise(r => setTimeout(r, ms));
 }
 
 // Start bot
@@ -119,7 +115,6 @@ module.exports = {
   bot,
   sleeping,
   isRunning,
-  isEating,
   pvpEnabled,
   armorEquipped
 };
