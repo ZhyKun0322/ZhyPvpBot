@@ -73,7 +73,7 @@ function createBot() {
     })
 
     // Start roaming automatically
-    if (roaming) roamLoop()
+    if (roaming && !bot.roamingLoopActive) roamLoop()
   })
 
   bot.on('respawn', () => {
@@ -84,7 +84,7 @@ function createBot() {
       followTask.cancel()
       followTask = null
     }
-    if (roaming) roamLoop()
+    if (roaming && !bot.roamingLoopActive) roamLoop()
   })
 
   bot.on('message', jsonMsg => {
@@ -121,7 +121,7 @@ async function onChat(username, message) {
     if (!roaming) {
       roaming = true
       bot.chat('Starting roam...')
-      roamLoop()
+      if (!bot.roamingLoopActive) roamLoop()
     }
     return
   }
@@ -256,26 +256,39 @@ async function eatFood() {
 async function sleepRoutine() {
   if (sleeping) return
   const bed = bot.findBlock({ matching: b => bot.isABed(b), maxDistance: 16 })
-  if (!bed) { bot.chat("No bed found nearby!"); return }
+  if (!bed) { 
+    bot.chat("No bed found nearby!") 
+    return 
+  }
 
   try {
+    sleeping = true
     const wasRoaming = roaming
-    roaming = false
+    roaming = false // pause roaming while sleeping
+
     bot.chat("Going to bed...")
     await goTo(bed.position)
     await bot.sleep(bed)
-    sleeping = true
 
     bot.once('wake', () => {
       sleeping = false
-      if (wasRoaming) { roaming = true; roamLoop() }
-      bot.chat("Woke up, resuming roaming.")
+      bot.chat("Woke up!")
+
+      // Resume roaming if it was active before sleeping
+      if (wasRoaming) {
+        roaming = true
+        if (!bot.roamingLoopActive) roamLoop()
+      }
     })
-  } catch (err) { log('Sleep failed: ' + err.message) }
+  } catch (err) { 
+    sleeping = false
+    log('Sleep failed: ' + err.message)
+  }
 }
 
 // ---------------- Roaming ----------------
 async function roamLoop() {
+  bot.roamingLoopActive = true
   while (roaming && !sleeping && !pvpEnabled) {
     const pos = bot.entity.position.offset(
       Math.floor(Math.random() * 11) - 5,
@@ -297,6 +310,7 @@ async function roamLoop() {
     } catch {}
     await delay(3000)
   }
+  bot.roamingLoopActive = false
 }
 
 // ---------------- Follow ----------------
