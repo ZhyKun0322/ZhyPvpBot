@@ -1,7 +1,6 @@
 const mineflayer = require('mineflayer')
 const { pathfinder, Movements, goals: { GoalNear } } = require('mineflayer-pathfinder')
 const pvp = require('mineflayer-pvp').plugin
-const Vec3 = require('vec3')
 const mcDataLoader = require('minecraft-data')
 const fs = require('fs')
 const config = require('./config.json')
@@ -12,12 +11,9 @@ let isRunning = true
 let isEating = false
 let alreadyLoggedIn = false
 let pvpEnabled = false
-let armorEquipped = false
-let patrolEnabled = false
-let patrolTaskRunning = false
-let followTask = null // follow routine handle
+let followTask = null
 
-const preferredFoods = ['cooked_beef', 'cooked_chicken', 'bread', 'golden_apple']
+const preferredFoods = ['cooked_beef', 'cooked_chicken', 'bread', 'golden_apple, potato, cooked_potato']
 
 function log(msg) {
   const time = new Date().toISOString()
@@ -26,7 +22,6 @@ function log(msg) {
   fs.appendFileSync('logs.txt', fullMsg + '\n')
 }
 
-// sprint only, no jump
 function setCombatMovement(enabled) {
   bot.setControlState('sprint', enabled)
   bot.setControlState('jump', false)
@@ -75,8 +70,15 @@ function createBot() {
     }
   })
 
-  bot.on('end', () => setTimeout(createBot, 5000))
-  bot.on('error', err => log(err.message))
+  bot.on('end', () => {
+    log('Bot disconnected. Reconnecting in 5s...')
+    setTimeout(createBot, 5000)
+  })
+
+  bot.on('error', err => {
+    log('Error: ' + err.message)
+    if (!bot._client?.ended) bot.quit()
+  })
 }
 
 // ---------------- Chat Commands ----------------
@@ -127,11 +129,6 @@ function onChat(username, message) {
   if (username !== 'ZhyKun') return
 
   if (message === '!roam') wanderRoutine()
-  if (message === '!patrol') {
-    patrolEnabled = true
-    runPatrol()
-  }
-  if (message === '!patrolstop') patrolEnabled = false
 
   // Follow commands
   if (message === '!come') {
@@ -163,9 +160,11 @@ function eatIfHungry() {
   if (!food) return
 
   isEating = true
+  // stop moving before eating
+  bot.clearControlStates()
   bot.equip(food, 'hand')
     .then(() => bot.consume())
-    .finally(() => (isEating = false))
+    .finally(() => { isEating = false })
 }
 
 // ---------------- Loops ----------------
@@ -190,11 +189,21 @@ async function sleepRoutine() {
   const bed = bot.findBlock({ matching: b => bot.isABed(b), maxDistance: 16 })
   if (!bed) return
 
-  await goTo(bed.position)
-  await bot.sleep(bed)
-  sleeping = true
+  // Wait for safe area
+  const safe = bot.nearestEntity(e => e.type === 'mob' && e.position.distanceTo(bot.entity.position) < 5)
+  if (safe) {
+    bot.chat("Waiting for mobs to leave before sleeping...")
+    await delay(5000)
+  }
 
-  bot.once('wake', () => (sleeping = false))
+  try {
+    await goTo(bed.position)
+    await bot.sleep(bed)
+    sleeping = true
+    bot.once('wake', () => sleeping = false)
+  } catch (err) {
+    log('Sleep failed: ' + err.message)
+  }
 }
 
 // ---------------- Wander ----------------
@@ -218,34 +227,13 @@ async function wanderRoutine() {
   }
 }
 
+// ---------------- GoTo ----------------
 async function goTo(pos) {
   try {
+    // Look at the destination while moving
+    bot.lookAt(pos.offset(0, 1.5, 0))
     await bot.pathfinder.goto(new GoalNear(pos.x, pos.y, pos.z, 1))
   } catch {}
-}
-
-function delay(ms) {
-  return new Promise(r => setTimeout(r, ms))
-}
-
-// ---------------- Patrol ----------------
-async function runPatrol() {
-  if (patrolTaskRunning) return
-  patrolTaskRunning = true
-
-  while (patrolEnabled) {
-    setCombatMovement(true)
-
-    const hostile = bot.nearestEntity(e =>
-      e.type === 'mob' && ['zombie', 'skeleton', 'spider'].includes(e.name)
-    )
-
-    if (hostile) bot.pvp.attack(hostile)
-    await delay(3000)
-  }
-
-  setCombatMovement(false)
-  patrolTaskRunning = false
 }
 
 // ---------------- Follow Routine ----------------
@@ -269,5 +257,7 @@ function followPlayer(target) {
     }
   }
 }
+
+function delay(ms) { return new Promise(r => setTimeout(r, ms)) }
 
 createBot()
