@@ -13,6 +13,7 @@ let pvpEnabled = false
 let followTask = null
 let roaming = true
 let autoEatEnabled = true
+let awaitingTeleport = false   // ✅ ADDED (global)
 
 // ---------------- FOOD ----------------
 const preferredFoods = [
@@ -57,7 +58,6 @@ function createBot() {
     log('Bot spawned')
     mcData = mcDataLoader(bot.version)
 
-    // -------- NO DIG MOVEMENTS --------
     defaultMove = new Movements(bot, mcData)
     defaultMove.canDig = false
     defaultMove.canPlace = false
@@ -70,7 +70,6 @@ function createBot() {
 
     bot.on('chat', onChat)
 
-    // Auto eat
     bot.on('physicsTick', () => {
       if (autoEatEnabled && bot.food < 20 && !isEating) eatFood()
     })
@@ -80,7 +79,6 @@ function createBot() {
   })
 
   bot.on('respawn', () => {
-    log('Bot respawned')
     sleeping = false
     pvpEnabled = false
 
@@ -89,6 +87,15 @@ function createBot() {
       followTask = null
     }
 
+    roaming = true
+    if (!bot.roamingLoopActive) roamLoop()
+  })
+
+  // ✅ TELEPORT DETECTION (SimpleTPA / tp / warp)
+  bot.on('forcedMove', () => {
+    if (!awaitingTeleport) return
+
+    awaitingTeleport = false
     roaming = true
     if (!bot.roamingLoopActive) roamLoop()
   })
@@ -219,7 +226,7 @@ async function onChat(username, message) {
           try {
             await bot.equip(item, slot)
             equipped = true
-          } catch (e) { log(e.message) }
+          } catch {}
         }
       }
     }
@@ -240,10 +247,10 @@ async function onChat(username, message) {
     return
   }
 
-  // -------- TPA (SimpleTpa → always ZhyKun) --------
+  // -------- TPA (SimpleTpa → ZhyKun) --------
   if (message === '!tpa') {
     roaming = false
-    let awaitingTeleport = true
+    awaitingTeleport = true
     bot.chat('/tpa ZhyKun')
     bot.chat('TPA request sent to ZhyKun.')
     return
