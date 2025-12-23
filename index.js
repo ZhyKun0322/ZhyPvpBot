@@ -15,6 +15,13 @@ let roaming = true
 let autoEatEnabled = true
 let awaitingTeleport = false   // ✅ ADDED (global)
 
+// 🆕 GUARD STATE (ONLY ADDED)
+let guardEnabled = false
+let guardTarget = null
+let currentEnemy = null
+
+const OWNER = 'ZhyKun'
+
 // ---------------- FOOD ----------------
 const preferredFoods = [
   'cooked_beef',
@@ -67,11 +74,11 @@ function createBot() {
     defaultMove.countScaffoldingItems = () => 0
 
     bot.pathfinder.setMovements(defaultMove)
-
     bot.on('chat', onChat)
 
     bot.on('physicsTick', () => {
       if (autoEatEnabled && bot.food < 20 && !isEating) eatFood()
+      if (guardEnabled) guardTick()
     })
 
     roaming = true
@@ -81,6 +88,8 @@ function createBot() {
   bot.on('respawn', () => {
     sleeping = false
     pvpEnabled = false
+    guardEnabled = false
+    currentEnemy = null
 
     if (followTask) {
       followTask.cancel()
@@ -123,7 +132,26 @@ function createBot() {
 // ---------------- CHAT ----------------
 async function onChat(username, message) {
   if (username === bot.username) return
-  const isOwner = username === 'ZhyKun'
+  const isOwner = username === OWNER
+
+  // 🆕 GUARD COMMANDS (ONLY ADDED)
+  if (isOwner && message === '!guard') {
+    guardEnabled = true
+    roaming = false
+    guardTarget = bot.players[OWNER]?.entity
+    bot.chat('🛡️ Guarding you')
+    return
+  }
+
+  if (isOwner && message === '!stopguard') {
+    guardEnabled = false
+    currentEnemy = null
+    bot.pvp.stop()
+    roaming = true
+    if (!bot.roamingLoopActive) roamLoop()
+    bot.chat('🛑 Guard stopped')
+    return
+  }
 
   if (isOwner && message === '!roam') {
     roaming = true
@@ -257,20 +285,77 @@ async function onChat(username, message) {
   }
 }
 
-// ---------------- EAT ----------------
+// ---------------- EAT (OFFHAND FIX) ----------------
 async function eatFood() {
   if (isEating || bot.food >= 20) return
   const food = bot.inventory.items().find(i => preferredFoods.includes(i.name))
   if (!food) return
   try {
     isEating = true
-    await bot.equip(food, 'hand')
+    await bot.equip(food, 'off-hand')
     await bot.consume()
   } catch (e) {
     log(e.message)
   } finally {
     isEating = false
   }
+}
+
+// ---------------- GUARD LOGIC (ONLY ADDED) ----------------
+async function guardTick() {
+  if (!guardTarget?.position) return
+
+  bot.pathfinder.setMovements(defaultMove)
+  bot.pathfinder.setGoal(
+    new GoalNear(
+      guardTarget.position.x,
+      guardTarget.position.y,
+      guardTarget.position.z,
+      2
+    ),
+    true
+  )
+
+  if (currentEnemy && currentEnemy.isValid) return
+
+  const mobs = Object.values(bot.entities).filter(e =>
+    e.type === 'mob' &&
+    e.position.distanceTo(bot.entity.position) < 16
+  )
+
+  const skeleton = mobs.find(e => e.name === 'skeleton')
+  const creeper = mobs.find(e => e.name === 'creeper')
+  const hostile = mobs.find(e =>
+    ['zombie','husk','drowned','spider','cave_spider'].includes(e.name)
+  )
+
+  if (skeleton) return attack(skeleton)
+  if (creeper) return creeperAttack(creeper)
+  if (hostile) return attack(hostile)
+}
+
+async function equipSword() {
+  const sword = bot.inventory.items().find(i => i.name.includes('sword'))
+  if (sword) await bot.equip(sword, 'hand')
+}
+
+async function attack(entity) {
+  currentEnemy = entity
+  await equipSword()
+  bot.pvp.attack(entity)
+}
+
+async function creeperAttack(creeper) {
+  currentEnemy = creeper
+  await equipSword()
+  bot.pvp.attack(creeper)
+
+  setTimeout(async () => {
+    bot.pvp.stop()
+    const dir = bot.entity.position.minus(creeper.position).normalize().scaled(5)
+    await goTo(bot.entity.position.plus(dir))
+    if (creeper.isValid) bot.pvp.attack(creeper)
+  }, 600)
 }
 
 // ---------------- SLEEP ----------------
