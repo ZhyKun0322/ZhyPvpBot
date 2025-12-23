@@ -242,6 +242,8 @@ async function onChat(username, message) {
 
   // -------- TPA (SimpleTpa → always ZhyKun) --------
   if (message === '!tpa') {
+    roaming = false
+    let awaitingTeleport = false
     bot.chat('/tpa ZhyKun')
     bot.chat('TPA request sent to ZhyKun.')
     return
