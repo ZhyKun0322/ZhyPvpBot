@@ -55,7 +55,6 @@ function createBot() {
 
   bot.once('spawn', () => {
     log('Bot spawned')
-
     mcData = mcDataLoader(bot.version)
 
     // -------- NO DIG MOVEMENTS --------
@@ -112,9 +111,7 @@ function createBot() {
     setTimeout(createBot, 5000)
   })
 
-  bot.on('error', err => {
-    log('Error: ' + err.message)
-  })
+  bot.on('error', err => log('Error: ' + err.message))
 }
 
 // ---------------- CHAT ----------------
@@ -122,6 +119,7 @@ async function onChat(username, message) {
   if (username === bot.username) return
   const isOwner = username === 'ZhyKun'
 
+  // -------- ROAM --------
   if (isOwner && message === '!roam') {
     roaming = true
     if (!bot.roamingLoopActive) roamLoop()
@@ -135,6 +133,7 @@ async function onChat(username, message) {
     return
   }
 
+  // -------- FOLLOW --------
   if (isOwner && message === '!come') {
     const target = bot.players[username]?.entity
     if (!target) return bot.chat("Can't see you!")
@@ -154,14 +153,21 @@ async function onChat(username, message) {
     return
   }
 
+  // -------- AUTOEAT --------
   if (isOwner && message === '!autoeat') {
     autoEatEnabled = !autoEatEnabled
     bot.chat(`AutoEat: ${autoEatEnabled}`)
     return
   }
 
-  if (message === '!sleep') sleepRoutine()
+  // -------- SLEEP --------
+  if (message === '!sleep') {
+    bot.chat('Going to sleep...')
+    sleepRoutine()
+    return
+  }
 
+  // -------- PVP --------
   if (message === '!pvp') {
     const player = Object.values(bot.entities).find(
       e => e.type === 'player' && e.username === username
@@ -177,6 +183,7 @@ async function onChat(username, message) {
     await bot.equip(weapon, 'hand')
     setCombatMovement(true)
     bot.pvp.attack(player)
+    bot.chat(`PvP started vs ${player.username}`)
     return
   }
 
@@ -186,7 +193,68 @@ async function onChat(username, message) {
     bot.pvp.stop()
     roaming = true
     if (!bot.roamingLoopActive) roamLoop()
+    bot.chat('PvP stopped')
     return
+  }
+
+  // -------- DROP --------
+  if (message === '!drop') {
+    const items = bot.inventory.items()
+    if (!items.length) bot.chat('No items to drop.')
+    else {
+      for (const item of items) {
+        try { await bot.tossStack(item) } catch {}
+      }
+      bot.chat('Dropped all items.')
+    }
+    return
+  }
+
+  // -------- ARMOR --------
+  if (message === '!armor') {
+    const slots = ['head', 'torso', 'legs', 'feet']
+    let equipped = false
+
+    for (const slot of slots) {
+      if (!bot.inventory.slots[bot.getEquipmentDestSlot(slot)]) {
+        const item = bot.inventory.items().find(i => {
+          if (slot === 'head') return i.name.includes('helmet')
+          if (slot === 'torso') return i.name.includes('chestplate')
+          if (slot === 'legs') return i.name.includes('leggings')
+          if (slot === 'feet') return i.name.includes('boots')
+        })
+
+        if (item) {
+          try {
+            await bot.equip(item, slot)
+            equipped = true
+          } catch (e) { log(e.message) }
+        }
+      }
+    }
+
+    bot.chat(equipped ? 'Equipped armor.' : 'No armor found.')
+    return
+  }
+
+  // -------- REMOVE ARMOR --------
+  if (message === '!remove') {
+    const slots = ['head', 'torso', 'legs', 'feet']
+    for (const slot of slots) {
+      const item = bot.inventory.slots[bot.getEquipmentDestSlot(slot)]
+      if (item) {
+        try { await bot.unequip(slot) } catch {}
+      }
+    }
+    bot.chat('Armor removed.')
+    return
+  }
+
+  // -------- TPA --------
+  if (message.startsWith('!tpa ')) {
+    const [, target] = message.split(' ')
+    if (!target) return bot.chat('Usage: !tpa <player>')
+    bot.chat(`/tpa ${target}`)
   }
 }
 
@@ -195,13 +263,12 @@ async function eatFood() {
   if (isEating || bot.food >= 20) return
   const food = bot.inventory.items().find(i => preferredFoods.includes(i.name))
   if (!food) return
-
   try {
     isEating = true
     await bot.equip(food, 'hand')
     await bot.consume()
-  } catch (err) {
-    log(err.message)
+  } catch (e) {
+    log(e.message)
   } finally {
     isEating = false
   }
@@ -214,20 +281,23 @@ async function sleepRoutine() {
     matching: b => b.name?.includes('bed'),
     maxDistance: 16
   })
-  if (!bed) return bot.chat('No bed nearby')
+  if (!bed) return bot.chat('No bed nearby.')
 
   try {
     sleeping = true
     roaming = false
     await goTo(bed.position)
     await bot.sleep(bed)
+
     bot.once('wake', () => {
       sleeping = false
+      bot.chat('Woke up!')
       roaming = true
       if (!bot.roamingLoopActive) roamLoop()
     })
   } catch (e) {
     sleeping = false
+    log(e.message)
   }
 }
 
