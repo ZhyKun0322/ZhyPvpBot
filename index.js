@@ -38,6 +38,7 @@ function log(msg) {
 
 // ---------------- COMBAT MOVE ----------------
 function setCombatMovement(enabled) {
+  if (!bot.entity) return
   bot.setControlState('sprint', enabled)
   bot.setControlState('jump', false)
 }
@@ -66,14 +67,13 @@ function createBot() {
     defaultMove.allow1by1tallDoors = false
     defaultMove.allowParkour = false
     defaultMove.scaffoldingBlocks = []
-    defaultMove.countScaffoldingItems = () => 0
-
+    
     bot.pathfinder.setMovements(defaultMove)
     bot.on('chat', onChat)
 
     let lastEatCheck = 0
     bot.on('physicsTick', () => {
-      if (Date.now() - lastEatCheck < 1000) return
+      if (!bot.entity || Date.now() - lastEatCheck < 1000) return
       lastEatCheck = Date.now()
 
       if (autoEatEnabled && bot.food < 20 && !isEating) {
@@ -81,24 +81,20 @@ function createBot() {
       }
     })
 
-    roaming = true
-    if (!bot.roamingLoopActive) roamLoop()
+    if (roaming) roamLoop()
   })
 
   bot.on('respawn', () => {
     sleeping = false
     pvpEnabled = false
-
     if (followTask) {
       followTask.cancel()
       followTask = null
     }
-
     roaming = true
     if (!bot.roamingLoopActive) roamLoop()
   })
 
-  // TELEPORT DETECTION
   bot.on('forcedMove', () => {
     if (!awaitingTeleport) return
     awaitingTeleport = false
@@ -119,14 +115,18 @@ function createBot() {
   })
 
   bot.on('end', () => {
-    log('Bot disconnected. Reconnecting in 5s...')
+    log('Bot disconnected. Cleaning up...')
+    alreadyLoggedIn = false
+    roaming = false
+    bot.roamingLoopActive = false
+    if (followTask) followTask.cancel()
     setTimeout(createBot, 5000)
   })
 
   bot.on('error', err => log('Error: ' + err.message))
 }
 
-// ---------------- CHAT ----------------
+// ---------------- CHAT (COMMANDS UNTOUCHED) ----------------
 async function onChat(username, message) {
   if (username === bot.username) return
   const isOwner = username === OWNER
@@ -181,9 +181,7 @@ async function onChat(username, message) {
     )
     if (!player) return bot.chat("Can't find you!")
 
-    const weapon =
-      bot.inventory.items().find(i => i.name.includes('sword')) ||
-      bot.inventory.items().find(i => i.name.includes('axe'))
+    const weapon = bot.inventory.items().find(i => i.name.includes('sword') || i.name.includes('axe'))
     if (!weapon) return bot.chat('No weapon')
 
     roaming = false
@@ -220,35 +218,24 @@ async function onChat(username, message) {
   if (message === '!armor') {
     const slots = ['head', 'torso', 'legs', 'feet']
     let equipped = false
-
     for (const slot of slots) {
-      if (!bot.inventory.slots[bot.getEquipmentDestSlot(slot)]) {
-        const item = bot.inventory.items().find(i => {
-          if (slot === 'head') return i.name.includes('helmet')
-          if (slot === 'torso') return i.name.includes('chestplate')
-          if (slot === 'legs') return i.name.includes('leggings')
-          if (slot === 'feet') return i.name.includes('boots')
-        })
-        if (item) {
-          try {
-            await bot.equip(item, slot)
-            equipped = true
-          } catch {}
-        }
+      const item = bot.inventory.items().find(i => 
+        (slot === 'head' && i.name.includes('helmet')) ||
+        (slot === 'torso' && i.name.includes('chestplate')) ||
+        (slot === 'legs' && i.name.includes('leggings')) ||
+        (slot === 'feet' && i.name.includes('boots'))
+      )
+      if (item) {
+        try { await bot.equip(item, slot); equipped = true } catch {}
       }
     }
-
     bot.chat(equipped ? 'Equipped armor.' : 'No armor found.')
     return
   }
 
   if (message === '!remove') {
-    const slots = ['head', 'torso', 'legs', 'feet']
-    for (const slot of slots) {
-      const item = bot.inventory.slots[bot.getEquipmentDestSlot(slot)]
-      if (item) {
-        try { await bot.unequip(slot) } catch {}
-      }
+    for (const slot of ['head', 'torso', 'legs', 'feet']) {
+      try { await bot.unequip(slot) } catch {}
     }
     bot.chat('Armor removed.')
     return
@@ -258,38 +245,35 @@ async function onChat(username, message) {
     roaming = false
     awaitingTeleport = true
     bot.chat('/tpa ZhyKun')
-    bot.chat('TPA request sent to ZhyKun.')
     return
   }
 }
 
-// ---------------- EAT (FIXED FOR PVP) ----------------
+// ---------------- EAT (FIXED FOR PVP RESUMPTION) ----------------
 async function eatFood() {
-  if (isEating || bot.food >= 20) return
+  if (isEating || bot.food >= 20 || !bot.entity) return
 
   const food = bot.inventory.items().find(i => preferredFoods.includes(i.name))
   if (!food) return
 
   const wasPvP = pvpEnabled
-  const target = bot.pvp.target
+  const currentTarget = bot.pvp.target
 
   try {
     isEating = true
-
     if (wasPvP) bot.pvp.stop()
 
     await bot.equip(food, 'hand')
     await bot.consume()
 
-    if (wasPvP && target?.isValid) {
-      const weapon =
-        bot.inventory.items().find(i => i.name.includes('sword')) ||
-        bot.inventory.items().find(i => i.name.includes('axe'))
+    // Resume Combat if applicable
+    if (wasPvP && currentTarget && currentTarget.isValid) {
+      const weapon = bot.inventory.items().find(i => i.name.includes('sword') || i.name.includes('axe'))
       if (weapon) await bot.equip(weapon, 'hand')
-      bot.pvp.attack(target)
+      bot.pvp.attack(currentTarget)
     }
   } catch (e) {
-    log(e.message)
+    log('Eating error: ' + e.message)
   } finally {
     isEating = false
   }
@@ -298,10 +282,7 @@ async function eatFood() {
 // ---------------- SLEEP ----------------
 async function sleepRoutine() {
   if (sleeping) return
-  const bed = bot.findBlock({
-    matching: b => b.name?.includes('bed'),
-    maxDistance: 16
-  })
+  const bed = bot.findBlock({ matching: b => b.name?.includes('bed'), maxDistance: 16 })
   if (!bed) return bot.chat('No bed nearby.')
 
   try {
@@ -309,10 +290,8 @@ async function sleepRoutine() {
     roaming = false
     await goTo(bed.position)
     await bot.sleep(bed)
-
     bot.once('wake', () => {
       sleeping = false
-      bot.chat('Woke up!')
       roaming = true
       if (!bot.roamingLoopActive) roamLoop()
     })
@@ -322,31 +301,23 @@ async function sleepRoutine() {
   }
 }
 
-// ---------------- ROAM ----------------
+// ---------------- ROAM (FIXED CRASHES) ----------------
 async function roamLoop() {
+  if (bot.roamingLoopActive) return
   bot.roamingLoopActive = true
 
-  while (roaming && !sleeping && !pvpEnabled) {
+  while (roaming && !sleeping && !pvpEnabled && bot.entity) {
     const pos = bot.entity.position.offset(
-      Math.floor(Math.random() * 11) - 5,
+      Math.floor(Math.random() * 21) - 10,
       0,
-      Math.floor(Math.random() * 11) - 5
+      Math.floor(Math.random() * 21) - 10
     )
 
-    const ground = bot.blockAt(pos.offset(0, -1, 0))
-    const space = bot.blockAt(pos)
-
-    if (!ground || ground.boundingBox !== 'block' || !space || space.boundingBox !== 'empty') {
-      await delay(200)
-      continue
-    }
-
     try {
-      bot.pathfinder.setMovements(defaultMove)
-      await bot.pathfinder.goto(new GoalNear(pos.x, pos.y, pos.z, 1))
+      await bot.pathfinder.goto(new GoalNear(pos.x, pos.y, pos.z, 2))
     } catch {}
 
-    await delay(3000)
+    await delay(4000)
   }
 
   bot.roamingLoopActive = false
@@ -356,13 +327,10 @@ async function roamLoop() {
 function followPlayer(target) {
   let cancelled = false
   ;(async () => {
-    while (!cancelled) {
+    while (!cancelled && bot.entity) {
       if (!target?.position) break
-      bot.pathfinder.setMovements(defaultMove)
       try {
-        await bot.pathfinder.goto(
-          new GoalNear(target.position.x, target.position.y, target.position.z, 1)
-        )
+        await bot.pathfinder.goto(new GoalNear(target.position.x, target.position.y, target.position.z, 2))
       } catch {}
       await delay(1000)
     }
@@ -372,7 +340,7 @@ function followPlayer(target) {
 
 // ---------------- GOTO ----------------
 async function goTo(pos) {
-  bot.pathfinder.setMovements(defaultMove)
+  if (!bot.entity) return
   try {
     await bot.pathfinder.goto(new GoalNear(pos.x, pos.y, pos.z, 1))
   } catch {}
@@ -383,5 +351,5 @@ function delay(ms) {
   return new Promise(r => setTimeout(r, ms))
 }
 
-// ---------------- START ----------------
 createBot()
+         
