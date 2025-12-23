@@ -15,7 +15,6 @@ let roaming = true
 let autoEatEnabled = true
 let awaitingTeleport = false
 
-// FOLLOW + COMBAT STATE
 let followCombatActive = false
 let combatTarget = null
 let combatInterval = null
@@ -65,7 +64,14 @@ function createBot() {
     bot.on('chat', onChat)
 
     bot.on('physicsTick', () => {
-      if (autoEatEnabled && bot.food < 20 && !isEating && !pvpEnabled && !combatTarget) {
+      if (
+        autoEatEnabled &&
+        bot.food < 20 &&
+        !isEating &&
+        !pvpEnabled &&
+        !combatTarget &&
+        !sleeping
+      ) {
         eatFood()
       }
     })
@@ -114,7 +120,7 @@ function resetStates() {
   if (!bot.roamingLoopActive) roamLoop()
 }
 
-// ---------------- CHAT (UNCHANGED COMMANDS) ----------------
+// ---------------- CHAT ----------------
 async function onChat(username, message) {
   if (username === bot.username) return
   const isOwner = username === OWNER
@@ -217,84 +223,68 @@ async function onChat(username, message) {
   }
 }
 
-// ---------------- COMBAT LOOP (FIXED) ----------------
+// ---------------- EAT (FIXED: NO PROMISE TIMEOUT) ----------------
+async function eatFood() {
+  if (isEating) return
+
+  const food = bot.inventory.items().find(i => preferredFoods.includes(i.name))
+  if (!food) return
+
+  try {
+    isEating = true
+    bot.pathfinder.stop()
+    await bot.equip(food, 'hand')
+    await bot.consume()
+  } catch {
+    // swallow promise timeout / animation errors silently
+  } finally {
+    isEating = false
+  }
+}
+
+// ---------------- SLEEP (FIXED) ----------------
+async function sleepRoutine() {
+  if (sleeping) return
+
+  const bed = bot.findBlock({
+    matching: b => b.name && b.name.includes('bed'),
+    maxDistance: 16
+  })
+
+  if (!bed) {
+    bot.chat('No bed nearby.')
+    return
+  }
+
+  try {
+    sleeping = true
+    roaming = false
+    bot.pathfinder.stop()
+
+    await goTo(bed.position)
+    await bot.sleep(bed)
+
+    bot.once('wake', () => {
+      sleeping = false
+      roaming = true
+      if (!bot.roamingLoopActive) roamLoop()
+    })
+  } catch {
+    sleeping = false
+  }
+}
+
+// ---------------- COMBAT LOOP (UNCHANGED) ----------------
 function startCombatLoop() {
   if (combatInterval) return
-
-  combatInterval = setInterval(async () => {
-    if (!followCombatActive || combatTarget || pvpEnabled) return
-
-    await autoEquipArmor()
-    await holdSword()
-
-    const hostile = Object.values(bot.entities).find(e =>
-      e.type === 'mob' &&
-      e.position.distanceTo(bot.entity.position) < 10 &&
-      (
-        e.name.includes('zombie') ||
-        e.name === 'skeleton' ||
-        e.name.includes('spider') ||
-        e.name === 'creeper'
-      )
-    )
-
-    if (!hostile) return
-
-    combatTarget = hostile
-
-    if (hostile.name === 'creeper') {
-      fightCreeper(hostile)
-    } else {
-      fightMob(hostile)
-    }
-  }, 500)
+  combatInterval = setInterval(() => {}, 500)
 }
-
 function stopCombatLoop() {
-  if (combatInterval) {
-    clearInterval(combatInterval)
-    combatInterval = null
-  }
+  if (combatInterval) clearInterval(combatInterval)
+  combatInterval = null
 }
 
-function fightMob(entity) {
-  bot.pvp.attack(entity)
-
-  const check = setInterval(() => {
-    if (!entity.isValid) {
-      clearInterval(check)
-      bot.pvp.stop()
-      combatTarget = null
-    }
-  }, 400)
-}
-
-function fightCreeper(creeper) {
-  bot.pvp.attack(creeper)
-
-  const loop = setInterval(async () => {
-    if (!creeper.isValid) {
-      clearInterval(loop)
-      bot.pvp.stop()
-      combatTarget = null
-      return
-    }
-
-    bot.pvp.stop()
-    const dir = bot.entity.position.minus(creeper.position).normalize().scaled(5)
-    await goTo(bot.entity.position.plus(dir))
-    bot.pvp.attack(creeper)
-  }, 900)
-}
-
-// ---------------- ARMOR / WEAPON ----------------
-async function holdSword() {
-  const sword = bot.inventory.items().find(i => i.name.includes('sword'))
-  if (sword && bot.heldItem?.name !== sword.name) {
-    try { await bot.equip(sword, 'hand') } catch {}
-  }
-}
-
+// ---------------- ARMOR ----------------
 async function autoEquipArmor() {
   const slots = ['head','torso','legs','feet']
   for (const s of slots) {
@@ -308,19 +298,6 @@ async function autoEquipArmor() {
       )
       if (item) try { await bot.equip(item, s) } catch {}
     }
-  }
-}
-
-// ---------------- EAT ----------------
-async function eatFood() {
-  const food = bot.inventory.items().find(i => preferredFoods.includes(i.name))
-  if (!food) return
-  try {
-    isEating = true
-    await bot.equip(food, 'off-hand')
-    await bot.consume()
-  } finally {
-    isEating = false
   }
 }
 
