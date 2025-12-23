@@ -75,7 +75,6 @@ function createBot() {
       if (autoEatEnabled && bot.food < 20 && !isEating) eatFood()
     })
 
-    // ALWAYS roam after spawn
     roaming = true
     if (!bot.roamingLoopActive) roamLoop()
   })
@@ -119,7 +118,6 @@ async function onChat(username, message) {
   if (username === bot.username) return
   const isOwner = username === 'ZhyKun'
 
-  // -------- ROAM --------
   if (isOwner && message === '!roam') {
     roaming = true
     if (!bot.roamingLoopActive) roamLoop()
@@ -133,7 +131,6 @@ async function onChat(username, message) {
     return
   }
 
-  // -------- FOLLOW --------
   if (isOwner && message === '!come') {
     const target = bot.players[username]?.entity
     if (!target) return bot.chat("Can't see you!")
@@ -153,21 +150,18 @@ async function onChat(username, message) {
     return
   }
 
-  // -------- AUTOEAT --------
   if (isOwner && message === '!autoeat') {
     autoEatEnabled = !autoEatEnabled
     bot.chat(`AutoEat: ${autoEatEnabled}`)
     return
   }
 
-  // -------- SLEEP --------
   if (message === '!sleep') {
     bot.chat('Going to sleep...')
     sleepRoutine()
     return
   }
 
-  // -------- PVP --------
   if (message === '!pvp') {
     const player = Object.values(bot.entities).find(
       e => e.type === 'player' && e.username === username
@@ -197,7 +191,6 @@ async function onChat(username, message) {
     return
   }
 
-  // -------- DROP --------
   if (message === '!drop') {
     const items = bot.inventory.items()
     if (!items.length) bot.chat('No items to drop.')
@@ -210,7 +203,6 @@ async function onChat(username, message) {
     return
   }
 
-  // -------- ARMOR --------
   if (message === '!armor') {
     const slots = ['head', 'torso', 'legs', 'feet']
     let equipped = false
@@ -223,7 +215,6 @@ async function onChat(username, message) {
           if (slot === 'legs') return i.name.includes('leggings')
           if (slot === 'feet') return i.name.includes('boots')
         })
-
         if (item) {
           try {
             await bot.equip(item, slot)
@@ -237,7 +228,6 @@ async function onChat(username, message) {
     return
   }
 
-  // -------- REMOVE ARMOR --------
   if (message === '!remove') {
     const slots = ['head', 'torso', 'legs', 'feet']
     for (const slot of slots) {
@@ -250,11 +240,11 @@ async function onChat(username, message) {
     return
   }
 
-  // -------- TPA --------
-  if (message.startsWith('!tpa ')) {
-    const [, target] = message.split(' ')
-    if (!target) return bot.chat('Usage: !tpa <player>')
-    bot.chat(`/tpa ${target}`)
+  // -------- TPA (SimpleTpa → always ZhyKun) --------
+  if (message === '!tpa') {
+    bot.chat('/tpa ZhyKun')
+    bot.chat('TPA request sent to ZhyKun.')
+    return
   }
 }
 
