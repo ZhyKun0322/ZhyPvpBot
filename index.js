@@ -5,6 +5,8 @@ const mcDataLoader = require('minecraft-data')
 const fs = require('fs')
 const config = require('./config.json')
 
+const OWNER = 'YourMinecraftUsername' // CHANGE THIS
+
 let bot, mcData, defaultMove
 let sleeping = false
 let isEating = false
@@ -13,18 +15,7 @@ let pvpEnabled = false
 let followTask = null
 let roaming = true
 let autoEatEnabled = true
-let awaitingTeleport = false   // ✅ ADDED (global)
-
-// 🆕 GUARD STATE (ONLY ADDED)
-let guardEnabled = false
-let guardTarget = null
-let currentEnemy = null
-
-const OWNER = 'ZhyKun'
-
-function isEnemyAlive(entity) {
-  return entity && entity.isValid && entity.health > 0
-}
+let awaitingTeleport = false
 
 // ---------------- FOOD ----------------
 const preferredFoods = [
@@ -80,9 +71,14 @@ function createBot() {
     bot.pathfinder.setMovements(defaultMove)
     bot.on('chat', onChat)
 
+    let lastEatCheck = 0
     bot.on('physicsTick', () => {
-      if (autoEatEnabled && bot.food < 20 && !isEating) eatFood()
-      if (guardEnabled) guardTick()
+      if (!autoEatEnabled) return
+      if (pvpEnabled) return
+      if (Date.now() - lastEatCheck < 1000) return
+      lastEatCheck = Date.now()
+
+      if (bot.food < 20 && !isEating) eatFood()
     })
 
     roaming = true
@@ -92,8 +88,6 @@ function createBot() {
   bot.on('respawn', () => {
     sleeping = false
     pvpEnabled = false
-    guardEnabled = false
-    currentEnemy = null
 
     if (followTask) {
       followTask.cancel()
@@ -104,10 +98,8 @@ function createBot() {
     if (!bot.roamingLoopActive) roamLoop()
   })
 
-  // ✅ TELEPORT DETECTION (SimpleTPA / tp / warp)
   bot.on('forcedMove', () => {
     if (!awaitingTeleport) return
-
     awaitingTeleport = false
     roaming = true
     if (!bot.roamingLoopActive) roamLoop()
@@ -137,33 +129,6 @@ function createBot() {
 async function onChat(username, message) {
   if (username === bot.username) return
   const isOwner = username === OWNER
-
-  // 🆕 GUARD COMMANDS (ONLY ADDED)
-  if (isOwner && message === '!guard') {
-    guardEnabled = true
-    roaming = false
-    currentEnemy = null
-bot.pvp.stop()
-
-    if (followTask) {
-  followTask.cancel()
-  followTask = null
-}
-    guardTarget = bot.players[OWNER]?.entity
-    bot.chat('🛡️ Guarding you')
-    return
-  }
-
-  if (isOwner && message === '!stopguard') {
-    guardEnabled = false
-    currentEnemy = null
-    guardTarget = null
-    bot.pvp.stop()
-    roaming = true
-    if (!bot.roamingLoopActive) roamLoop()
-    bot.chat('🛑 Guard stopped')
-    return
-  }
 
   if (isOwner && message === '!roam') {
     roaming = true
@@ -204,7 +169,6 @@ bot.pvp.stop()
   }
 
   if (message === '!sleep') {
-    bot.chat('Going to sleep...')
     sleepRoutine()
     return
   }
@@ -214,6 +178,7 @@ bot.pvp.stop()
       e => e.type === 'player' && e.username === username
     )
     if (!player) return bot.chat("Can't find you!")
+
     const weapon =
       bot.inventory.items().find(i => i.name.includes('sword')) ||
       bot.inventory.items().find(i => i.name.includes('axe'))
@@ -239,163 +204,58 @@ bot.pvp.stop()
   }
 
   if (message === '!drop') {
-    const items = bot.inventory.items()
-    if (!items.length) bot.chat('No items to drop.')
-    else {
-      for (const item of items) {
-        try { await bot.tossStack(item) } catch {}
-      }
-      bot.chat('Dropped all items.')
+    for (const item of bot.inventory.items()) {
+      try { await bot.tossStack(item) } catch {}
     }
+    bot.chat('Dropped all items.')
     return
   }
 
-  if (message === '!armor') {
-    const slots = ['head', 'torso', 'legs', 'feet']
-    let equipped = false
-
-    for (const slot of slots) {
-      if (!bot.inventory.slots[bot.getEquipmentDestSlot(slot)]) {
-        const item = bot.inventory.items().find(i => {
-          if (slot === 'head') return i.name.includes('helmet')
-          if (slot === 'torso') return i.name.includes('chestplate')
-          if (slot === 'legs') return i.name.includes('leggings')
-          if (slot === 'feet') return i.name.includes('boots')
-        })
-        if (item) {
-          try {
-            await bot.equip(item, slot)
-            equipped = true
-          } catch {}
-        }
-      }
-    }
-
-    bot.chat(equipped ? 'Equipped armor.' : 'No armor found.')
-    return
-  }
-
-  if (message === '!remove') {
-    const slots = ['head', 'torso', 'legs', 'feet']
-    for (const slot of slots) {
-      const item = bot.inventory.slots[bot.getEquipmentDestSlot(slot)]
-      if (item) {
-        try { await bot.unequip(slot) } catch {}
-      }
-    }
-    bot.chat('Armor removed.')
-    return
-  }
-
-  // -------- TPA (SimpleTpa → ZhyKun) --------
   if (message === '!tpa') {
     roaming = false
     awaitingTeleport = true
     bot.chat('/tpa ZhyKun')
-    bot.chat('TPA request sent to ZhyKun.')
-    return
+    bot.chat('TPA request sent.')
   }
 }
 
-// ---------------- EAT (OFFHAND FIX) ----------------
+// ---------------- EAT (PvP SAFE) ----------------
 async function eatFood() {
   if (isEating || bot.food >= 20) return
+
   const food = bot.inventory.items().find(i => preferredFoods.includes(i.name))
   if (!food) return
+
+  const wasPvP = pvpEnabled
+
   try {
     isEating = true
-    await bot.equip(food, 'off-hand')
+
+    if (wasPvP) {
+      pvpEnabled = false
+      bot.pvp.stop()
+      setCombatMovement(false)
+    }
+
+    await bot.equip(food, 'hand')
     await bot.consume()
+
   } catch (e) {
     log(e.message)
   } finally {
     isEating = false
+
+    if (wasPvP) {
+      pvpEnabled = true
+      setCombatMovement(true)
+    }
   }
-}
-
-// ---------------- GUARD LOGIC (ONLY ADDED) ----------------
-
-async function guardTick() {
-  if (!guardTarget?.position) return
-
-  // 🔧 FIX: clear dead / invalid enemy
-  if (currentEnemy && !isEnemyAlive(currentEnemy)) {
-    bot.pvp.stop()
-    currentEnemy = null
-  }
-
-  // 🔧 FIX: follow owner ONLY if too far (prevents pathfinder spam)
-  const distanceToOwner = bot.entity.position.distanceTo(guardTarget.position)
-  if (distanceToOwner > 3 && !currentEnemy) {
-    bot.pathfinder.setMovements(defaultMove)
-    bot.pathfinder.setGoal(
-      new GoalNear(
-        guardTarget.position.x,
-        guardTarget.position.y,
-        guardTarget.position.z,
-        2
-      ),
-      true
-    )
-  }
-
-  // 🔧 FIX: if already fighting, do nothing
-  if (currentEnemy) return
-
-  // 🔧 FIX: find nearest hostile mob
-  const mobs = Object.values(bot.entities)
-    .filter(e =>
-      e.type === 'mob' &&
-      e.position &&
-      e.position.distanceTo(bot.entity.position) < 16
-    )
-    .sort(
-      (a, b) =>
-        a.position.distanceTo(bot.entity.position) -
-        b.position.distanceTo(bot.entity.position)
-    )
-
-  const target =
-    mobs.find(e => e.name === 'skeleton') ||
-    mobs.find(e => e.name === 'creeper') ||
-    mobs.find(e =>
-      ['zombie', 'husk', 'drowned', 'spider', 'cave_spider'].includes(e.name)
-    )
-
-  if (!target) return
-
-  await equipSword()
-  currentEnemy = target
-  bot.pvp.attack(target)
-}
-
-async function equipSword() {
-  const sword = bot.inventory.items().find(i => i.name.includes('sword'))
-  if (sword) await bot.equip(sword, 'hand')
-}
-
-async function attack(entity) {
-  currentEnemy = entity
-  await equipSword()
-  bot.pvp.attack(entity)
-}
-
-async function creeperAttack(creeper) {
-  currentEnemy = creeper
-  await equipSword()
-  bot.pvp.attack(creeper)
-
-  setTimeout(async () => {
-    bot.pvp.stop()
-    const dir = bot.entity.position.minus(creeper.position).normalize().scaled(5)
-    await goTo(bot.entity.position.plus(dir))
-    if (creeper.isValid) bot.pvp.attack(creeper)
-  }, 600)
 }
 
 // ---------------- SLEEP ----------------
 async function sleepRoutine() {
   if (sleeping) return
+
   const bed = bot.findBlock({
     matching: b => b.name?.includes('bed'),
     maxDistance: 16
@@ -410,7 +270,6 @@ async function sleepRoutine() {
 
     bot.once('wake', () => {
       sleeping = false
-      bot.chat('Woke up!')
       roaming = true
       if (!bot.roamingLoopActive) roamLoop()
     })
@@ -440,7 +299,6 @@ async function roamLoop() {
     }
 
     try {
-      bot.pathfinder.setMovements(defaultMove)
       await bot.pathfinder.goto(new GoalNear(pos.x, pos.y, pos.z, 1))
     } catch {}
 
@@ -456,7 +314,6 @@ function followPlayer(target) {
   ;(async () => {
     while (!cancelled) {
       if (!target?.position) break
-      bot.pathfinder.setMovements(defaultMove)
       try {
         await bot.pathfinder.goto(
           new GoalNear(target.position.x, target.position.y, target.position.z, 1)
@@ -470,7 +327,6 @@ function followPlayer(target) {
 
 // ---------------- GOTO ----------------
 async function goTo(pos) {
-  bot.pathfinder.setMovements(defaultMove)
   try {
     await bot.pathfinder.goto(new GoalNear(pos.x, pos.y, pos.z, 1))
   } catch {}
