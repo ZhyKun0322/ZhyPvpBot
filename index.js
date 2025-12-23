@@ -22,6 +22,10 @@ let currentEnemy = null
 
 const OWNER = 'ZhyKun'
 
+function isEnemyAlive(entity) {
+  return entity && entity.isValid && entity.health > 0
+}
+
 // ---------------- FOOD ----------------
 const preferredFoods = [
   'cooked_beef',
@@ -138,6 +142,13 @@ async function onChat(username, message) {
   if (isOwner && message === '!guard') {
     guardEnabled = true
     roaming = false
+    currentEnemy = null
+bot.pvp.stop()
+
+    if (followTask) {
+  followTask.cancel()
+  followTask = null
+}
     guardTarget = bot.players[OWNER]?.entity
     bot.chat('🛡️ Guarding you')
     return
@@ -146,6 +157,7 @@ async function onChat(username, message) {
   if (isOwner && message === '!stopguard') {
     guardEnabled = false
     currentEnemy = null
+    guardTarget = null
     bot.pvp.stop()
     roaming = true
     if (!bot.roamingLoopActive) roamLoop()
@@ -302,36 +314,59 @@ async function eatFood() {
 }
 
 // ---------------- GUARD LOGIC (ONLY ADDED) ----------------
+
 async function guardTick() {
   if (!guardTarget?.position) return
 
-  bot.pathfinder.setMovements(defaultMove)
-  bot.pathfinder.setGoal(
-    new GoalNear(
-      guardTarget.position.x,
-      guardTarget.position.y,
-      guardTarget.position.z,
-      2
-    ),
-    true
-  )
+  // 🔧 FIX: clear dead / invalid enemy
+  if (currentEnemy && !isEnemyAlive(currentEnemy)) {
+    bot.pvp.stop()
+    currentEnemy = null
+  }
 
-  if (currentEnemy && currentEnemy.isValid) return
+  // 🔧 FIX: follow owner ONLY if too far (prevents pathfinder spam)
+  const distanceToOwner = bot.entity.position.distanceTo(guardTarget.position)
+  if (distanceToOwner > 3 && !currentEnemy) {
+    bot.pathfinder.setMovements(defaultMove)
+    bot.pathfinder.setGoal(
+      new GoalNear(
+        guardTarget.position.x,
+        guardTarget.position.y,
+        guardTarget.position.z,
+        2
+      ),
+      true
+    )
+  }
 
-  const mobs = Object.values(bot.entities).filter(e =>
-    e.type === 'mob' &&
-    e.position.distanceTo(bot.entity.position) < 16
-  )
+  // 🔧 FIX: if already fighting, do nothing
+  if (currentEnemy) return
 
-  const skeleton = mobs.find(e => e.name === 'skeleton')
-  const creeper = mobs.find(e => e.name === 'creeper')
-  const hostile = mobs.find(e =>
-    ['zombie','husk','drowned','spider','cave_spider'].includes(e.name)
-  )
+  // 🔧 FIX: find nearest hostile mob
+  const mobs = Object.values(bot.entities)
+    .filter(e =>
+      e.type === 'mob' &&
+      e.position &&
+      e.position.distanceTo(bot.entity.position) < 16
+    )
+    .sort(
+      (a, b) =>
+        a.position.distanceTo(bot.entity.position) -
+        b.position.distanceTo(bot.entity.position)
+    )
 
-  if (skeleton) return attack(skeleton)
-  if (creeper) return creeperAttack(creeper)
-  if (hostile) return attack(hostile)
+  const target =
+    mobs.find(e => e.name === 'skeleton') ||
+    mobs.find(e => e.name === 'creeper') ||
+    mobs.find(e =>
+      ['zombie', 'husk', 'drowned', 'spider', 'cave_spider'].includes(e.name)
+    )
+
+  if (!target) return
+
+  await equipSword()
+  currentEnemy = target
+  bot.pvp.attack(target)
 }
 
 async function equipSword() {
