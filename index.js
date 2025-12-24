@@ -56,12 +56,9 @@ function createBot() {
     log('Bot spawned')
     mcData = mcDataLoader(bot.version)
     defaultMove = new Movements(bot, mcData)
-    
-    // --- DOOR LOGIC ---
     defaultMove.canDig = false
     defaultMove.canPlace = false
-    defaultMove.canOpenDoors = true // Path through doors
-    defaultMove.allow1by1tallDoors = true // Walk through door gaps
+    defaultMove.allow1by1tallDoors = false
     defaultMove.allowParkour = false
     
     bot.pathfinder.setMovements(defaultMove)
@@ -343,16 +340,6 @@ function followPlayer(target) {
         log("Target position lost.");
         break;
       }
-
-      // Check for doors in front of the bot
-      const block = bot.blockAtCursor(3)
-      if (block && block.name.includes('door')) {
-        // If the door is closed, click it
-        if (block._properties?.open === 'false' || block.metadata < 4) {
-          try { await bot.activateBlock(block) } catch (e) {}
-        }
-      }
-
       try { await bot.pathfinder.goto(new GoalNear(target.position.x, target.position.y, target.position.z, 2)) } catch {}
       await delay(1000)
     }
@@ -368,4 +355,5 @@ async function goTo(pos) {
 function delay(ms) { return new Promise(r => setTimeout(r, ms)) }
 
 createBot()
-                            
+
+        
