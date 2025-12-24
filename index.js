@@ -46,7 +46,9 @@ function createBot() {
     port: config.port,
     username: config.username,
     version: config.version,
-    auth: 'offline'
+    auth: 'offline',
+    checkTimeoutInterval: 60000,
+    keepAlive: true
   })
 
   bot.loadPlugin(pathfinder)
@@ -56,13 +58,21 @@ function createBot() {
     log('Bot spawned')
     mcData = mcDataLoader(bot.version)
     defaultMove = new Movements(bot, mcData)
+    
+    // Door Logic Settings
     defaultMove.canDig = false
     defaultMove.canPlace = false
-    defaultMove.allow1by1tallDoors = false
+    defaultMove.allowOpeningDoors = true // Can open closed doors
+    defaultMove.allow1by1tallDoors = true
     defaultMove.allowParkour = false
     
     bot.pathfinder.setMovements(defaultMove)
     bot.on('chat', onChat)
+
+    // Door Closing Logic: Triggered when pathfinder finishes a goal
+    bot.on('goal_reached', () => {
+      if (!pvpEnabled && !isEating) closeNearbyDoors()
+    })
 
     let lastEatCheck = 0
     bot.on('physicsTick', () => {
@@ -83,13 +93,6 @@ function createBot() {
     if (!bot.roamingLoopActive) roamLoop()
   })
 
-  bot.on('forcedMove', () => {
-    if (!awaitingTeleport) return
-    awaitingTeleport = false
-    roaming = true
-    if (!bot.roamingLoopActive) roamLoop()
-  })
-
   bot.on('message', jsonMsg => {
     if (alreadyLoggedIn) return
     const msg = jsonMsg.toString().toLowerCase()
@@ -103,7 +106,7 @@ function createBot() {
   })
 
   bot.on('end', () => {
-    log('Bot disconnected. Cleaning up...')
+    log('Bot disconnected. Reconnecting...')
     alreadyLoggedIn = false
     roaming = false
     bot.roamingLoopActive = false
@@ -112,6 +115,29 @@ function createBot() {
   })
 
   bot.on('error', err => log('Error: ' + err.message))
+}
+
+// ---------------- DOOR CLOSER ----------------
+async function closeNearbyDoors() {
+  const door = bot.findBlock({
+    matching: block => {
+      const name = block.name.toLowerCase()
+      // Match wooden doors/gates only (Iron doors won't work)
+      return (name.includes('door') || name.includes('gate')) && !name.includes('iron')
+    },
+    maxDistance: 3
+  })
+
+  if (door) {
+    // Check if the door is currently open using metadata
+    // In many versions, metadata bit 0x4 indicates if a door is open
+    const isOpen = (door.metadata & 0x4) !== 0
+    if (isOpen) {
+      try {
+        await bot.activateBlock(door)
+      } catch (e) {}
+    }
+  }
 }
 
 // ---------------- CHAT ----------------
@@ -252,7 +278,6 @@ async function huntLoop() {
 async function killMob(mob) {
   while (bot?.entity && mob?.isValid && !pvpEnabled && !isEating) {
     if (!mob.position) break
-    
     const weapon = bot.inventory.items().find(i => i.name.includes('sword') || i.name.includes('axe'))
     if (!weapon) {
       log('No weapon found! Retreating.')
@@ -260,7 +285,6 @@ async function killMob(mob) {
       await goTo(bot.entity.position.plus(escapeDir))
       break
     }
-
     await bot.equip(weapon, 'hand')
     const dist = bot.entity.position.distanceTo(mob.position)
     if (dist > 16) break
@@ -336,10 +360,7 @@ function followPlayer(target) {
   let cancelled = false
   ;(async () => {
     while (!cancelled && bot?.entity) {
-      if (!target?.position) {
-        log("Target position lost.");
-        break;
-      }
+      if (!target?.position) break;
       try { await bot.pathfinder.goto(new GoalNear(target.position.x, target.position.y, target.position.z, 2)) } catch {}
       await delay(1000)
     }
@@ -355,4 +376,4 @@ async function goTo(pos) {
 function delay(ms) { return new Promise(r => setTimeout(r, ms)) }
 
 createBot()
-      
+        
