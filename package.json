@@ -9,9 +9,9 @@
   "author": "ZhyKun",
   "license": "MIT",
   "dependencies": {
-    "mineflayer": "github:PrismarineJS/mineflayer",
-    "mineflayer-pathfinder": "^2.4.5",
-    "mineflayer-pvp": "^1.3.2",
-    "minecraft-data": "github:PrismarineJS/minecraft-data"
+    "mineflayer": "^4.30.0",
+    "mineflayer-pathfinder": "^2.4.6",
+    "mineflayer-pvp": "^1.3.3",
+    "minecraft-data": "^3.82.0"
   }
 }
