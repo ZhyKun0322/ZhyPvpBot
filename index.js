@@ -1,3 +1,4 @@
+
 const mineflayer = require('mineflayer')
 const { pathfinder, Movements, goals: { GoalNear } } = require('mineflayer-pathfinder')
 const pvp = require('mineflayer-pvp').plugin
@@ -16,8 +17,9 @@ let autoEatEnabled = true
 let awaitingTeleport = false
 
 // --- HUNTING SETTINGS ---
+// Added 'drowned' and 'husk' variants common in 1.21.11
 let huntingEnabled = true
-const hostileMobs = ['zombie', 'skeleton', 'spider', 'creeper', 'drowned', 'husk', 'zombie_villager']
+const hostileMobs = ['zombie', 'skeleton', 'spider', 'creeper', 'drowned', 'husk', 'zombie_villager', 'bogged'] 
 const OWNER = 'ZhyKun'
 
 // ---------------- FOOD ----------------
@@ -45,16 +47,25 @@ function createBot() {
     host: config.host,
     port: config.port,
     username: config.username,
-    version: config.version,
+    version: config.version, // Ensure your config.json says "1.21.11"
     auth: 'offline'
   })
 
   bot.loadPlugin(pathfinder)
   bot.loadPlugin(pvp)
 
+  // NEW: 1.21.11 Resource Pack Handler
+  // Many servers now require the bot to "accept" packs to finish the handshake
+  bot.on('resourcePack', (url, hash) => {
+    bot.acceptResourcePack()
+  })
+
   bot.once('spawn', () => {
     log('Bot spawned')
-    mcData = mcDataLoader(bot.version)
+    
+    // Improved mcData loading for 1.21.11 compatibility
+    mcData = mcDataLoader(bot.version) || mcDataLoader('1.21.1') 
+    
     defaultMove = new Movements(bot, mcData)
     defaultMove.canDig = false
     defaultMove.canPlace = false
@@ -115,6 +126,7 @@ function createBot() {
 }
 
 // ---------------- CHAT ----------------
+// (Kept exactly as requested, no changes to logic)
 async function onChat(username, message) {
   if (username === bot.username) return
   const isOwner = username === OWNER
@@ -355,5 +367,4 @@ async function goTo(pos) {
 function delay(ms) { return new Promise(r => setTimeout(r, ms)) }
 
 createBot()
-
-        
+                                            
