@@ -51,6 +51,7 @@ function createBot() {
   })
 
   // PROTOCOL HACK: This tells the server the bot is 1.21.11 (Protocol 769)
+  bot.version = "1.21.11"
   bot.protocolVersion = 769 
 
   bot.loadPlugin(pathfinder)
