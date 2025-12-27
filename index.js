@@ -94,7 +94,7 @@ function createBot() {
     if (alreadyLoggedIn) return
     const msg = jsonMsg.toString().toLowerCase()
     if (msg.includes('register')) {
-      bot.chat(`/register ${config.password} ${config.password}`)
+      bot.chat(`/register ${config.password}`)
       alreadyLoggedIn = true
     } else if (msg.includes('login')) {
       bot.chat(`/login ${config.password}`)
