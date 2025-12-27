@@ -45,14 +45,17 @@ function createBot() {
     host: config.host,
     port: config.port,
     username: config.username,
-    version: config.version, 
+    // We set version to 1.21.1 here so Mineflayer loads the correct block/item data
+    version: "1.21.1", 
     auth: 'offline'
   })
+
+  // PROTOCOL HACK: This tells the server the bot is 1.21.11 (Protocol 769)
+  bot.protocolVersion = 769 
 
   bot.loadPlugin(pathfinder)
   bot.loadPlugin(pvp)
 
-  // FIX FOR 1.21.11: Handle Resource Packs automatically to prevent handshake kicks
   bot.on('resourcePack', () => {
     bot.acceptResourcePack()
   })
@@ -60,8 +63,8 @@ function createBot() {
   bot.once('spawn', () => {
     log('Bot spawned')
     
-    // FIX FOR 1.21.11: Fallback loading for mcData
-    mcData = mcDataLoader(bot.version) || mcDataLoader('1.21.1') || mcDataLoader('1.21')
+    // Explicitly load 1.21.1 data to match the bot's physics engine
+    mcData = mcDataLoader('1.21.1')
     
     defaultMove = new Movements(bot, mcData)
     defaultMove.canDig = false
@@ -122,8 +125,7 @@ function createBot() {
   bot.on('error', err => log('Error: ' + err.message))
 }
 
-// ---------------- CHAT ----------------
-// KEPT EXACTLY AS PROVIDED
+// ---------------- CHAT (NO CHANGES MADE) ----------------
 async function onChat(username, message) {
   if (username === bot.username) return
   const isOwner = username === OWNER
@@ -364,4 +366,4 @@ async function goTo(pos) {
 function delay(ms) { return new Promise(r => setTimeout(r, ms)) }
 
 createBot()
-  
+        
