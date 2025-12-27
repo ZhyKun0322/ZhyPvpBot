@@ -46,7 +46,7 @@ function createBot() {
     port: config.port,
     username: config.username,
     // We set version to 1.21.1 here so Mineflayer loads the correct block/item data
-    version: "1.21.1", 
+    version: "1.21.11", 
     auth: 'offline'
   })
 
