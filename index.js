@@ -45,12 +45,12 @@ function createBot() {
     host: config.host,
     port: config.port,
     username: config.username,
-    // We set version to 1.21.1 here so Mineflayer loads the correct block/item data
-    version: "1.21.1", 
+    // FIX: Set version to false to bypass the internal version checker
+    version: false, 
     auth: 'offline'
   })
 
-  // PROTOCOL HACK: This tells the server the bot is 1.21.11 (Protocol 769)
+  // PROTOCOL HACK: Manually set the ID to 769 (1.21.11)
   bot.version = "1.21.11"
   bot.protocolVersion = 769 
 
@@ -64,7 +64,7 @@ function createBot() {
   bot.once('spawn', () => {
     log('Bot spawned')
     
-    // Explicitly load 1.21.1 data to match the bot's physics engine
+    // Explicitly load 1.21.1 data maps for the bot's physics
     mcData = mcDataLoader('1.21.1')
     
     defaultMove = new Movements(bot, mcData)
@@ -367,4 +367,4 @@ async function goTo(pos) {
 function delay(ms) { return new Promise(r => setTimeout(r, ms)) }
 
 createBot()
-        
+             
